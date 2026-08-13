@@ -1,0 +1,6 @@
+# docs
+survey/
+
+# enviroment
+.env
+.venv
