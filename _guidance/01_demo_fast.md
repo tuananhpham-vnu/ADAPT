@@ -6,6 +6,12 @@ còn sống. Không dùng số này để báo cáo. Dùng agent `qa` vì datase
 ## 1. Tối ưu trigger, iteration cực ngắn
 
 ```powershell
+make opt-fast
+```
+
+tương đương:
+
+```powershell
 python algo/trigger_optimization.py `
   --agent qa --algo ap --model dpr-ctx_encoder-single-nq-base `
   --num_iter 5 --num_cand 20 --num_grad_iter 3 --per_gpu_eval_batch_size 16 `
@@ -25,8 +31,7 @@ Thấy `Init adv_passage [...]` rồi các dòng `Iteration:` kèm `Current adv_
 đổi dần là được. Lấy trigger cuối:
 
 ```powershell
-Select-String -Path ./results/demo_fast/qa/ap/*/stdout.txt -Pattern "Current adv_passage" |
-  Select-Object -Last 1
+make trigger RESULTS=./results/demo_fast
 ```
 
 ## 2. Dán trigger vào agent
@@ -37,19 +42,20 @@ thay list placeholder bằng token vừa lấy.
 ## 3. Chạy inference rồi Ctrl+C
 
 ```powershell
-mkdir result\ReAct -Force | Out-Null
-python ReAct/run_strategyqa_gpt3.5.py --model dpr --algo ap --task_type adv
+make run-qa-adv
 ```
 
 Mỗi câu xong là append ngay một dòng vào `result/ReAct/dpr-ap-adv.jsonl`, nên cứ
-để chạy 30–50 dòng rồi Ctrl+C. File mở chế độ append — xoá file cũ trước mỗi lần
-demo lại, không thì số của hai lần chạy cộng dồn.
+để chạy 30–50 dòng rồi Ctrl+C. File mở chế độ append — `make clean-out` trước mỗi
+lần demo lại, không thì số của hai lần chạy cộng dồn.
 
 ## 4. Đo
 
 ```powershell
 python ReAct/eval.py -p ./result/ReAct/dpr-ap-adv.jsonl
 ```
+
+(`make eval-qa` chấm cả hai nhánh, nhưng ở demo này mới có nhánh adv.)
 
 ## Khi vướng
 

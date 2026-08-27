@@ -1,0 +1,38 @@
+# Core deps cho pipeline qa (ReAct) + ehr (EhrAgent) + algo/ (tối ưu trigger).
+# Agent-Driver cần thêm requirements-agentdriver.txt.
+# torch cài riêng theo CUDA của máy, xem Makefile target `torch-cu121`.
+
+torch
+transformers==4.39.1
+tokenizers
+huggingface-hub
+accelerate
+peft
+datasets
+sentence-transformers
+safetensors
+
+numpy<2
+pandas
+scikit-learn
+matplotlib
+seaborn
+
+openai
+tiktoken
+replicate
+ag2==0.2.0          # cung cấp module `autogen` cho EhrAgent
+tenacity
+requests
+beautifulsoup4
+google-search-results   # module `serpapi`, chỉ khi ReAct dùng live web search
+
+python-dotenv
+jsonlines
+ndjson
+tqdm
+termcolor
+wandb
+Levenshtein
+gym==0.26.2
+wolframalpha

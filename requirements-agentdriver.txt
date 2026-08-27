@@ -1,0 +1,16 @@
+# Chỉ cần khi chạy agent `ad` (Agent-Driver / nuScenes).
+# Cài sau requirements.txt.
+
+nuscenes-devkit
+pyquaternion
+shapely
+casadi
+opencv-python
+scikit-image
+imageio
+moviepy
+pytorch-lightning
+diffusers
+trl
+tyro
+ghapi

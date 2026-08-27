@@ -13,10 +13,16 @@ Luôn cần cả hai nhánh benign và adv mới đọc được kết quả.
 ## ReAct / StrategyQA
 
 ```powershell
-mkdir result\ReAct -Force | Out-Null
-python ReAct/run_strategyqa_gpt3.5.py --model dpr --algo ap --task_type benign
-python ReAct/run_strategyqa_gpt3.5.py --model dpr --algo ap --task_type adv
+make run-qa-benign
+make run-qa-adv
+make eval-qa
+```
 
+tức là:
+
+```powershell
+python ReAct/run_strategyqa_gpt3.5.py --model dpr --algo ap --task_type benign --save_dir ./result/ReAct
+python ReAct/run_strategyqa_gpt3.5.py --model dpr --algo ap --task_type adv    --save_dir ./result/ReAct
 python ReAct/eval.py -p ./result/ReAct/dpr-ap-benign.jsonl
 python ReAct/eval.py -p ./result/ReAct/dpr-ap-adv.jsonl
 ```
@@ -24,8 +30,8 @@ python ReAct/eval.py -p ./result/ReAct/dpr-ap-adv.jsonl
 Output là `result/ReAct/<embedder>-<algo>-<task_type>.jsonl`, mỗi dòng có `answer`,
 `gt_answer`, `traj`, `retrieval_success`, `overall_retrieval`.
 
-Script append chứ không ghi đè, và không tự tạo thư mục output — nhớ `mkdir` và
-xoá `.jsonl` cũ trước mỗi lần chạy lại.
+Script append chứ không ghi đè, và không tự tạo thư mục output. Target `make`
+lo phần `mkdir`; xoá `.jsonl` cũ bằng `make clean-out` trước mỗi lần chạy lại.
 
 Backbone LLaMA-3 dùng `ReAct/run_strategyqa_llama3_api.py`, có thêm `--skip N` để
 chạy tiếp sau khi bị ngắt. Kết quả tham chiếu để đối chiếu nằm ở [ReAct/ablation/](ReAct/ablation/).
@@ -33,12 +39,9 @@ chạy tiếp sau khi bị ngắt. Kết quả tham chiếu để đối chiếu
 ## EhrAgent
 
 ```powershell
-mkdir result\Ehragent\gpt -Force | Out-Null
-python EhrAgent/ehragent/main.py --backbone gpt --model dpr --algo ap --num_questions 50
-python EhrAgent/ehragent/main.py --backbone gpt --model dpr --algo ap --num_questions 50 --attack
-
-python EhrAgent/ehragent/eval.py -p ./result/Ehragent/gpt/ap_benign_dpr.json
-python EhrAgent/ehragent/eval.py -p ./result/Ehragent/gpt/ap_trigger_dpr.json
+make run-ehr-benign NUM_Q=50
+make run-ehr-adv NUM_Q=50
+make eval-ehr
 ```
 
 Tên file output cố định theo `<algo>_<trigger|benign>_<embedder>.json`.
@@ -66,8 +69,7 @@ bash scripts/agent_driver/run_evaluation.sh uniad <result.pkl>
 Rẻ và nhanh hơn nhiều khi chỉ muốn so retriever:
 
 ```powershell
-python embedder/eval_embed_contrastive.py
-python embedder/eval_embed_classification.py
+make eval-embedder
 ```
 
 ## Bảng cần dựng

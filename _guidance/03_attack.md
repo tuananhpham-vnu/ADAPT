@@ -13,15 +13,12 @@ khởi tạo bằng `[MASK]`.
 
 ## Chạy
 
-Ba script gói sẵn cấu hình chuẩn, khác nhau đúng ở `--agent`:
-
-```bash
-bash scripts/react_strategyqa/run_optimization.sh   # qa
-bash scripts/ehragent/run_optimization.sh           # ehr
-bash scripts/agent_driver/run_optimization.sh       # ad
+```powershell
+make opt-qa      # hoặc opt-ehr / opt-ad
+make trigger     # in trigger cuối của run gần nhất
 ```
 
-Tương đương:
+Cấu hình chuẩn của upstream nằm ở `scripts/<agent>/run_optimization.sh`, tương đương:
 
 ```powershell
 python algo/trigger_optimization.py `
@@ -31,11 +28,8 @@ python algo/trigger_optimization.py `
 ```
 
 Kết quả vào `results/<agent>/<algo>/<timestamp>/stdout.txt`. Stdout bị redirect nên
-terminal im lặng.
-
-```powershell
-Select-String -Path ./results/qa/ap/*/stdout.txt -Pattern "Current adv_passage" | Select-Object -Last 1
-```
+terminal im lặng — `make trigger` đọc file đó và in ra số iteration đã chạy cùng
+trigger cuối cùng.
 
 ## Các cờ hay dùng
 
@@ -77,8 +71,8 @@ chỉ có tác dụng khi `--task_type adv`. EhrAgent nối vào cuối câu h�
 Chạy agent dưới tấn công:
 
 ```powershell
-python ReAct/run_strategyqa_gpt3.5.py --model dpr --algo ap --task_type adv
-python EhrAgent/ehragent/main.py --backbone gpt --model dpr --algo ap --attack
+make run-qa-adv
+make run-ehr-adv
 ```
 
 ## Sweep
@@ -87,7 +81,7 @@ python EhrAgent/ehragent/main.py --backbone gpt --model dpr --algo ap --attack
 agent × embedder × setting, tự xếp job lên GPU còn trống:
 
 ```bash
-PYTHON=$(which python) NUM_ITER=1000 NUM_CAND=100 MAX_JOBS=4 bash scripts/run_ablation_sweep.sh
+make sweep NUM_ITER=1000 NUM_CAND=100
 ```
 
 Sửa mảng `GRID` trong script để chọn tổ hợp. Mặc định `NUM_ITER=30`, `NUM_CAND=50`
@@ -102,4 +96,4 @@ Retrieval trúng nhưng agent không hành động sai (ASR-a thấp) thì bật
 `--target_gradient_guidance`. Trigger nhìn như rác, dễ bị lọc thì bật `--ppl_filter`
 kèm `--coh_sample --coh_temperature 0.5`. Có token `[unused0]` thì bật
 `--exclude_special`. ACC nhánh benign tụt là trigger quá xâm lấn, giảm `-t`.
-OOM thì hạ `-b` và `--num_cand`.
+OOM thì hạ `BATCH` và `NUM_CAND`.

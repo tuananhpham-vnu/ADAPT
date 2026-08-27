@@ -9,16 +9,12 @@ checkpoint tự train.
 Nên làm agent này trước vì dữ liệu có sẵn.
 
 ```powershell
-bash scripts/react_strategyqa/run_optimization.sh
-Select-String -Path ./results/qa/ap/*/stdout.txt -Pattern "Current adv_passage" | Select-Object -Last 1
+make opt-qa
+make trigger
 # dán trigger vào ReAct/run_strategyqa_gpt3.5.py:115
-
-mkdir result\ReAct -Force | Out-Null
-python ReAct/run_strategyqa_gpt3.5.py --model dpr --algo ap --task_type benign
-python ReAct/run_strategyqa_gpt3.5.py --model dpr --algo ap --task_type adv
-
-python ReAct/eval.py -p ./result/ReAct/dpr-ap-benign.jsonl
-python ReAct/eval.py -p ./result/ReAct/dpr-ap-adv.jsonl
+make run-qa-benign
+make run-qa-adv
+make eval-qa
 ```
 
 Tối ưu 1000 iter mất vài giờ trên một GPU, lần đầu cộng thêm 30–60 phút build cache
@@ -30,18 +26,15 @@ dần; `dpr-ap-adv.jsonl` phải có số dòng xấp xỉ số câu trong dev s
 ## EhrAgent
 
 ```powershell
-bash scripts/ehragent/run_optimization.sh
+make opt-ehr
+make trigger AGENT=ehr
 # dán trigger vào EhrAgent/ehragent/main.py:91
-
-mkdir result\Ehragent\gpt -Force | Out-Null
-python EhrAgent/ehragent/main.py --backbone gpt --model dpr --algo ap --num_questions -1
-python EhrAgent/ehragent/main.py --backbone gpt --model dpr --algo ap --num_questions -1 --attack
-
-python EhrAgent/ehragent/eval.py -p ./result/Ehragent/gpt/ap_benign_dpr.json
-python EhrAgent/ehragent/eval.py -p ./result/Ehragent/gpt/ap_trigger_dpr.json
+make run-ehr-benign
+make run-ehr-adv
+make eval-ehr
 ```
 
-Đổi `--backbone llama3` để chạy qua Replicate, cần `REPLICATE_API_TOKEN`.
+`make ... BACKBONE=llama3` để chạy qua Replicate, cần `REPLICATE_API_TOKEN`.
 
 Lưu ý: EhrAgent thực thi code do LLM sinh ra trong thư mục `coding/` (AutoGen
 `code_execution_config`) — chạy thí nghiệm trigger trong môi trường cách ly.
@@ -54,11 +47,12 @@ dữ liệu nuScenes tiền xử lý, `data/metrics` cho evaluation, và `FINETU
 trong `.env`.
 
 ```powershell
+make install-ad
 $env:PYTHONPATH = $PWD
 bash scripts/agent_driver/run_finetune.sh        # một lần
-bash scripts/agent_driver/run_optimization.sh
+make opt-ad
 # dán trigger, rồi:
-bash scripts/agent_driver/run_inference.sh
+make run-ad
 bash scripts/agent_driver/run_evaluation.sh uniad <result.pkl>
 ```
 
@@ -82,10 +76,11 @@ chạy `--model ada`.
 
 ## Chạy đủ cho báo cáo
 
-Dùng `scripts/run_ablation_sweep.sh` với `NUM_ITER=1000 NUM_CAND=100` để có trigger
+Dùng `make sweep NUM_ITER=1000 NUM_CAND=100` để có trigger
 cho mọi tổ hợp, sau đó với mỗi trigger chạy inference cả hai nhánh trên cả hai
 backbone. Ablation nên báo: có/không `--ppl_filter`, có/không
 `--target_gradient_guidance`, các mức `--coh_temperature`, độ dài trigger
 `-t ∈ {5,10,15}`, và `--knn ∈ {1,3,5,7,9}` cho ReAct.
 
-Đừng commit `.env`, `results/`, `result/`, và các file cache `.pkl`.
+Đừng commit `.env`, `results/`, `result/`, và các file cache `.pkl` — `.gitignore`
+đã cover sẵn.
