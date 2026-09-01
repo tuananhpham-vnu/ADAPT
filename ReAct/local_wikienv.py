@@ -13,6 +13,11 @@ import pickle
 from pathlib import Path
 import random
 import openai
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
+from adapt_tracing import step as trace_step
 
 def get_ada_embedding(text, model="text-embedding-3-small"):
   text = text.replace("\n", " ")
@@ -70,7 +75,13 @@ class WikiEnv(gym.Env):
     elif "ada" in embedder_name:
       self.embedding_model = "openai/ada"
 
-    self.load_db(embedder_name, trigger_sequence)
+    with trace_step("react.load_db", metadata={"embedder": embedder_name,
+                                                "knn": knn,
+                                                "trigger_sequence": trigger_sequence}) as _sp:
+      self.load_db(embedder_name, trigger_sequence)
+      _sp.set_output({"db_embeddings": list(self.db_embeddings.shape),
+                      "database_size": len(self.database),
+                      "injection_num": self.injection_num})
   
 
 
@@ -288,6 +299,13 @@ class WikiEnv(gym.Env):
         self.lookup_keyword = self.lookup_list = self.lookup_cnt = None
 
   def local_retrieve_step(self, entity):
+      with trace_step("react.retrieve", input=entity,
+                      metadata={"knn": self.knn}) as sp:
+          info = self._local_retrieve_step(entity)
+          sp.set_metadata(**info)
+          sp.set_output(self.obs)
+
+  def _local_retrieve_step(self, entity):
 
       if self.embedding_model == "openai/ada":
             
@@ -362,6 +380,17 @@ class WikiEnv(gym.Env):
       self.lookup_keyword = self.lookup_list = self.lookup_cnt = None
 
       self.overall_retrieval_counter += 1
+
+      return {
+          "top_k_indices": [int(i) for i in top5_indices],
+          "selected_index": int(target_index),
+          "similarity": float(cos_sim[target_index]),
+          "retrieved_id": top_id,
+          # True = lấy trúng đoạn đã bị đầu độc (attack thành công ở tầng retrieval)
+          "poisoned_hit": bool(flag),
+          "retrieval_success_counter": self.retrieval_success_counter,
+          "overall_retrieval_counter": self.overall_retrieval_counter,
+      }
 
   
 

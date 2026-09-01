@@ -27,6 +27,7 @@ requests
 beautifulsoup4
 google-search-results   # module `serpapi`, chỉ khi ReAct dùng live web search
 
+braintrust          # tracing từng bước của agent (tuỳ chọn, bật bằng BRAINTRUST_API_KEY)
 python-dotenv
 jsonlines
 ndjson

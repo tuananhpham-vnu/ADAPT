@@ -12,6 +12,35 @@ import torch
 import argparse
 import replicate
 from dotenv import load_dotenv
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
+from adapt_tracing import setup_logging, step as trace_step, flush as flush_traces, is_enabled
+
+setup_logging()
+is_enabled()  # in trạng thái Braintrust ngay đầu run
+
+def _traced_llm(fn, model_name):
+    """Bọc hàm gọi LLM thành span `react.llm_call` (prompt vào, completion ra)."""
+    def wrapper(*a, **kw):
+        with trace_step("react.llm_call", type="llm", input={"args": a, "kwargs": kw},
+                        metadata={"model": model_name}) as sp:
+            result = fn(*a, **kw)
+            sp.set_output(result)
+            return result
+    return wrapper
+
+
+def _traced_question(fn):
+    """Bọc một lượt hỏi-đáp thành span gốc `react.question`."""
+    def wrapper(idx=None, *a, **kw):
+        with trace_step("react.question", type="task",
+                        metadata={"question_index": idx}) as sp:
+            result = fn(idx, *a, **kw)
+            sp.set_output(result[0] if isinstance(result, tuple) else result)
+            return result
+    return wrapper
+
 
 load_dotenv()
 
@@ -169,7 +198,11 @@ def step(env, action, current_context):
                 with open("ReAct/outputs/chatgpt-strategyqa-react_intermediate.jsonl", "a") as output_file:
                     output_file.write(json.dumps(current_context, ensure_ascii=False) + '\n')
 
-            return env.step(action)
+            with trace_step("react.env_action", type="tool", input=action) as _sp:
+                _result = env.step(action)
+                _sp.set_output({"observation": _result[0], "reward": _result[1],
+                                "done": _result[2], "info": _result[3]})
+                return _result
         except requests.exceptions.Timeout:
             attempts += 1
 
@@ -292,6 +325,12 @@ def react(idx=None, prompt=sqa_react_prompt, to_print=True):
 
     return info, react_probs
 
+
+# --- tracing: bọc các hàm chính thành span có tên ---
+gpt = _traced_llm(gpt, "gpt-3.5-turbo-instruct")
+llama3 = _traced_llm(llama3, "meta-llama/Meta-Llama-3-8B-Instruct")
+llama3_api = _traced_llm(llama3_api, "meta/meta-llama-3-70b-instruct")
+react = _traced_question(react)
 
 evals = []
 old_time = time.time()
@@ -447,3 +486,5 @@ with open(save_file_name,"a") as output_file:
     #         print(e)
     #         print("Error on question", i)
     #         continue
+
+flush_traces()

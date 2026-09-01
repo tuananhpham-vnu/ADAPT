@@ -14,6 +14,35 @@ import replicate
 import time
 import requests
 from dotenv import load_dotenv
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
+from adapt_tracing import setup_logging, step as trace_step, flush as flush_traces, is_enabled
+
+setup_logging()
+is_enabled()  # in trạng thái Braintrust ngay đầu run
+
+def _traced_llm(fn, model_name):
+    """Bọc hàm gọi LLM thành span `react.llm_call` (prompt vào, completion ra)."""
+    def wrapper(*a, **kw):
+        with trace_step("react.llm_call", type="llm", input={"args": a, "kwargs": kw},
+                        metadata={"model": model_name}) as sp:
+            result = fn(*a, **kw)
+            sp.set_output(result)
+            return result
+    return wrapper
+
+
+def _traced_question(fn):
+    """Bọc một lượt hỏi-đáp thành span gốc `react.question`."""
+    def wrapper(idx=None, *a, **kw):
+        with trace_step("react.question", type="task",
+                        metadata={"question_index": idx}) as sp:
+            result = fn(idx, *a, **kw)
+            sp.set_output(result[0] if isinstance(result, tuple) else result)
+            return result
+    return wrapper
+
 
 # `replicate` reads REPLICATE_API_TOKEN from the environment; populate it from .env.
 load_dotenv()
@@ -107,7 +136,11 @@ def step(env, action, current_context):
     if "search[" in action:
         action = f"search[{current_context}]"
 
-    return env.step(action)
+    with trace_step("react.env_action", type="tool", input=action) as _sp:
+        _result = env.step(action)
+        _sp.set_output({"observation": _result[0], "reward": _result[1],
+                        "done": _result[2], "info": _result[3]})
+        return _result
 
 
 prompt_file = 'ReAct/prompts/prompts.json'
@@ -197,6 +230,10 @@ def react(idx=None, instruction=instruction_react, prompt=sqa_react_examples, to
     return info, react_probs
 
 
+# --- tracing: bọc các hàm chính thành span có tên ---
+llama2_prompt = _traced_llm(llama2_prompt, "llama")
+react = _traced_question(react)
+
 evals = []
 old_time = time.time()
 
@@ -226,3 +263,5 @@ with open(save_file_name,"a") as output_file:
         if info["em"]:
             num_correct += 1
         output_file.write(json.dumps(info, ensure_ascii=False) + '\n')
+
+flush_traces()

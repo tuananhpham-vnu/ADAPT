@@ -1,3 +1,7 @@
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))  # repo root
+from adapt_tracing import step as trace_step
 from agentdriver.llm_core.timeout import timeout
 from transformers import (BertModel, BertTokenizer, AutoTokenizer, 
                           DPRContextEncoder, AutoModel, RealmEmbedder, RealmForOpenQA)
@@ -202,7 +206,14 @@ class MemoryAgent:
 
     @timeout(15)
     def run(self, working_memory):
-        common_sense_prompts = self.retrieve_common_sense_memory()
-        experience_prompt = self.retrieve_experience_memory(working_memory, self.embedding)
+        with trace_step("agentdriver.memory_retrieve", input=working_memory) as sp:
+            common_sense_prompts = self.retrieve_common_sense_memory()
+            experience_prompt = self.retrieve_experience_memory(working_memory, self.embedding)
 
-        return common_sense_prompts, experience_prompt
+            sp.set_metadata(
+                embedding=str(self.embedding),
+                # True = lấy trúng kinh nghiệm đã bị đầu độc
+                poisoned_hit="ADV_INJECTION" in str(experience_prompt),
+            )
+            sp.set_output({"commonsense": common_sense_prompts, "experience": experience_prompt})
+            return common_sense_prompts, experience_prompt

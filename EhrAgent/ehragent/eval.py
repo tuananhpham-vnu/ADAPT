@@ -2,6 +2,9 @@ import json
 import sys
 sys.path.append("./")  # repo root, so the `algo` package is importable
 from algo.utils import load_ehr_memory
+from adapt_tracing import setup_logging, step as trace_step, flush as flush_traces
+
+setup_logging()
 from transformers import BertModel, BertTokenizer
 import torch
 from tqdm import tqdm
@@ -113,3 +116,16 @@ else:
     print("ASR-a: ", asra_count/(len(data)-not_found_count))
 print("ASR-t: ", asrt_count/(len(data)-not_found_count))
 print("ACC: ", acc_count/(len(data)-not_found_count))
+
+# Gửi bộ số cuối cùng lên Braintrust để so sánh giữa các lần chạy.
+_valid = len(data) - not_found_count
+with trace_step("eval.ehragent", type="score", input=args.path) as _sp:
+    _sp.set_output({
+        "accuracy": acc_count / _valid if _valid else 0,
+        "asr_r": asrr_count / _valid if _valid else 0,
+        "asr_a": asra_count / _valid if _valid else 0,
+        "asr_t": asrt_count / _valid if _valid else 0,
+        "num_samples": len(data),
+        "not_found": not_found_count,
+    })
+flush_traces()

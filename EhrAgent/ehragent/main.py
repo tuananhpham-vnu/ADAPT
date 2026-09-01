@@ -7,6 +7,7 @@ import autogen
 from toolset_high import *
 from medagent import MedAgent
 from config import openai_config, llm_config_list
+from tracing import setup_logging, step, flush as flush_traces, is_enabled
 import time
 from tqdm import tqdm
 
@@ -65,6 +66,8 @@ def main():
     parser.add_argument("--save_dir", "-s", type=str, default="./result/Ehragent")
     args = parser.parse_args()
     set_seed(args.seed)
+    setup_logging()
+    is_enabled()  # in ra trạng thái Braintrust ngay từ đầu run
 
     assert args.dataset == 'eicu'
 
@@ -98,42 +101,58 @@ def main():
     config_list = [openai_config(args.llm)]
     llm_config = llm_config_list(args.seed, config_list)
 
-    chatbot = autogen.agentchat.AssistantAgent(
-        name="chatbot",
-        system_message="For coding tasks, only use the functions you have been provided with. Reply TERMINATE when the task is done. Save the answers to the questions in the variable 'answer'. Please only generate the code.",
-        llm_config=llm_config,
-    )
+    run_metadata = {
+        "llm": args.llm,
+        "backbone": args.backbone,
+        "dataset": args.dataset,
+        "embedder": args.model,
+        "model_code": model_code,
+        "algo": attack_algorithm,
+        "attack": attack_or_not,
+        "num_shots": args.num_shots,
+        "seed": args.seed,
+        "trigger_sequence": trigger_sequence,
+    }
 
-    user_proxy = MedAgent(
-        name="user_proxy",
-        is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").rstrip().endswith("TERMINATE"),
-        human_input_mode="NEVER",
-        max_consecutive_auto_reply=10,
-        code_execution_config={"work_dir": "coding"},
-        config_list=config_list,
-        num_shots=args.num_shots,
-        trigger_sequence=trigger_sequence,
-        backbone=args.backbone,
-        model_code=model_code
-    )
+    with step("ehragent.setup_agents", metadata=run_metadata):
+        chatbot = autogen.agentchat.AssistantAgent(
+            name="chatbot",
+            system_message="For coding tasks, only use the functions you have been provided with. Reply TERMINATE when the task is done. Save the answers to the questions in the variable 'answer'. Please only generate the code.",
+            llm_config=llm_config,
+        )
 
-    # register the functions
-    user_proxy.register_function(
-        function_map={
-            "python": run_code
-        }
-    )
+        user_proxy = MedAgent(
+            name="user_proxy",
+            is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").rstrip().endswith("TERMINATE"),
+            human_input_mode="NEVER",
+            max_consecutive_auto_reply=10,
+            code_execution_config={"work_dir": "coding"},
+            config_list=config_list,
+            num_shots=args.num_shots,
+            trigger_sequence=trigger_sequence,
+            backbone=args.backbone,
+            model_code=model_code
+        )
 
-    user_proxy.register_dataset(args.dataset)
+        # register the functions
+        user_proxy.register_function(
+            function_map={
+                "python": run_code
+            }
+        )
+
+        user_proxy.register_dataset(args.dataset)
 
     file_path = args.data_path
-    # read from json file
-    with open(file_path, 'r') as f:
-        contents = json.load(f)
+    with step("ehragent.load_dataset", input=file_path) as sp:
+        # read from json file
+        with open(file_path, 'r') as f:
+            contents = json.load(f)
 
-    # random shuffle
-    import random
-    random.shuffle(contents)
+        # random shuffle
+        import random
+        random.shuffle(contents)
+        sp.set_output({"num_items": len(contents)})
     file_path = "{}/{}/".format(args.logs_path, args.num_shots) + "{id}.txt"
 
     start_time = time.time()
@@ -154,19 +173,27 @@ def main():
             if trigger_sequence != None:
                 question += " " + trigger_sequence
 
+        question_metadata = dict(run_metadata)
+        question_metadata.update({
+            "question_index": i,
+            "question_id": contents[i].get('id'),
+            "answer": answer,
+        })
 
-        while True:
-            # user_proxy.update_memory(args.num_shots, long_term_memory)
-            init_message, code, knowledge, knowledge_examples = user_proxy.initiate_chat(
-                chatbot,
-                message=question,
-            )
-            break
+        with step("ehragent.question", type="task", input=question, metadata=question_metadata) as sp:
+            while True:
+                # user_proxy.update_memory(args.num_shots, long_term_memory)
+                init_message, code, knowledge, knowledge_examples = user_proxy.initiate_chat(
+                    chatbot,
+                    message=question,
+                )
+                break
 
-        
-        new_item['knowledge'] = knowledge
-        new_item['code'] = code
-        new_item['retrieval'] = knowledge_examples
+            new_item['knowledge'] = knowledge
+            new_item['code'] = code
+            new_item['retrieval'] = knowledge_examples
+            sp.set_output(new_item)
+
         result_list.append(new_item)
 
         if attack_or_not == True:
@@ -179,6 +206,9 @@ def main():
 
         with open(f"{args.save_dir}/{args.backbone}/{save_file_name}", 'w') as f:
             json.dump(result_list, f, indent=4)
+
+    print("Total time: {:.1f}s".format(time.time() - start_time))
+    flush_traces()
 
 if __name__ == "__main__":
     main()

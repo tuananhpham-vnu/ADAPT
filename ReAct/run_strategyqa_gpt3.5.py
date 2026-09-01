@@ -10,6 +10,10 @@ import requests
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
 import argparse
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
+from adapt_tracing import setup_logging, step as trace_step, flush as flush_traces, is_enabled
 
 parser = argparse.ArgumentParser()
 
@@ -21,6 +25,9 @@ parser.add_argument("--backbone", "-b", type=str, default="gpt", help="choose fr
 parser.add_argument("--save_dir", "-s", type=str, default="./result/ReAct")
 parser.add_argument("--knn", "-k", type=int, default=1, help="choose from [1, 3, 5, 7, 9]")
 args = parser.parse_args()
+
+setup_logging()
+is_enabled()  # in trạng thái Braintrust ngay đầu run
 
 load_dotenv()
 openai.api_key = os.environ.get("OPENAI_API_KEY", "")
@@ -94,9 +101,20 @@ def llama3(prompt, stop=["\n"], return_probs=False):
         return output
 
 
+def _traced_llm(fn, model_name):
+    """Bọc hàm gọi LLM thành span `react.llm_call` (prompt vào, completion ra)."""
+    def wrapper(prompt, *a, **kw):
+        with trace_step("react.llm_call", type="llm", input=prompt,
+                        metadata={"model": model_name}) as sp:
+            result = fn(prompt, *a, **kw)
+            sp.set_output(result)
+            return result
+    return wrapper
+
+
 if args.backbone == "gpt": 
     save_file_name = f"{save_dir}/{embedder}-{algo}-{task_type}.jsonl" # saved file name
-    llm = gpt
+    llm = _traced_llm(gpt, "gpt-3.5-turbo-instruct")
 else:
     save_file_name = f"{save_dir}/{embedder}-{algo}-{task_type}.jsonl" # saved file name
 
@@ -108,7 +126,7 @@ else:
         # torch_dtype=torch.bfloat16,
         device_map="auto",
     )
-    llm = llama3
+    llm = _traced_llm(llama3, model_id)
 
 
 ##### Put your trigger tokens here #####
@@ -131,9 +149,20 @@ elif embedder == "ada":
     embedder_name = "ada"
 
 
-env = local_wikienv.WikiEnv(embedder_name, trigger_sequence, knn)
-env = wrappers.StrategyQAWrapper(env, split="dev")
-env = wrappers.LoggingWrapper(env)
+run_metadata = {
+    "embedder": embedder,
+    "embedder_name": embedder_name,
+    "algo": algo,
+    "task_type": task_type,
+    "backbone": args.backbone,
+    "knn": knn,
+    "trigger_sequence": trigger_sequence,
+}
+
+with trace_step("react.setup_env", metadata=run_metadata):
+    env = local_wikienv.WikiEnv(embedder_name, trigger_sequence, knn)
+    env = wrappers.StrategyQAWrapper(env, split="dev")
+    env = wrappers.LoggingWrapper(env)
 
 def step(env, action, current_context):
     attempts = 0
@@ -148,7 +177,11 @@ def step(env, action, current_context):
                 # with open("ReAct/outputs/chatgpt-strategyqa-react_intermediate.jsonl", "a") as output_file:
                 #     output_file.write(json.dumps(current_context, ensure_ascii=False) + '\n')
 
-            return env.step(action)
+            with trace_step("react.env_action", type="tool", input=action) as sp:
+                result = env.step(action)
+                sp.set_output({"observation": result[0], "reward": result[1],
+                               "done": result[2], "info": result[3]})
+                return result
         except requests.exceptions.Timeout:
             attempts += 1
 
@@ -198,29 +231,34 @@ def react(idx=None, prompt=sqa_react_prompt, to_print=True):
             if task_type == "adv" or task_type == "adversarial":
                 current_context += trigger_sequence
         n_calls += 1
-        thought_action_probs = llm(prompt + f"Thought {i}:", stop=[f"\nObservation {i}:"], return_probs=True)
-        react_probs.append(thought_action_probs)
-        thought_action = thought_action_probs["text"]
-        try:
-            thought, action = thought_action.strip().split(f"\nAction {i}: ")
-        except:
-            print('ohh...', thought_action)
-            n_badcalls += 1
-            n_calls += 1
-            thought = thought_action.strip().split('\n')[0]
-            action_probs = llm(prompt + f"Thought {i}: {thought}\nAction {i}:", stop=[f"\n"], return_probs=True)
-            react_probs.append(action_probs)
-            action = action_probs["text"].strip()
+        with trace_step("react.iteration", type="task",
+                        input={"step": i, "context": current_context},
+                        metadata={"step": i}) as sp_iter:
+            thought_action_probs = llm(prompt + f"Thought {i}:", stop=[f"\nObservation {i}:"], return_probs=True)
+            react_probs.append(thought_action_probs)
+            thought_action = thought_action_probs["text"]
+            try:
+                thought, action = thought_action.strip().split(f"\nAction {i}: ")
+            except:
+                print('ohh...', thought_action)
+                n_badcalls += 1
+                n_calls += 1
+                thought = thought_action.strip().split('\n')[0]
+                action_probs = llm(prompt + f"Thought {i}: {thought}\nAction {i}:", stop=[f"\n"], return_probs=True)
+                react_probs.append(action_probs)
+                action = action_probs["text"].strip()
 
-        obs, r, done, info = step(env, action[0].lower() + action[1:], current_context)
-        obs = obs.replace('\\n', '')
+            obs, r, done, info = step(env, action[0].lower() + action[1:], current_context)
+            obs = obs.replace('\\n', '')
 
-        # if "search[" in action[0].lower() + action[1:]:
-        #     save_intermediate.append(current_context)
+            # if "search[" in action[0].lower() + action[1:]:
+            #     save_intermediate.append(current_context)
 
-        step_str = f"Thought {i}: {thought}\nAction {i}: {action}\nObservation {i}: {obs}\n"
-        prompt += step_str
-        current_context += step_str
+            step_str = f"Thought {i}: {thought}\nAction {i}: {action}\nObservation {i}: {obs}\n"
+            prompt += step_str
+            current_context += step_str
+            sp_iter.set_output({"thought": thought, "action": action, "observation": obs})
+
 
         if to_print:
             print(step_str)
@@ -256,7 +294,10 @@ with open(save_file_name,"a") as output_file:
         num_instance += 1
 
 
-        info, _ = react(i, to_print=True)
+        with trace_step("react.question", type="task", input=question,
+                        metadata=dict(run_metadata, question_index=i, gold_answer=gold_answer)) as sp_q:
+            info, _ = react(i, to_print=True)
+            sp_q.set_output(info)
         evals.append(info['em'])
         print(sum(evals), len(evals), sum(evals) / len(evals), (time.time() - old_time) / len(evals))
         print('-----------')
@@ -266,3 +307,5 @@ with open(save_file_name,"a") as output_file:
             num_correct += 1
         output_file.write(json.dumps(info, ensure_ascii=False) + '\n')
 
+print("Accuracy: {}/{}".format(num_correct, num_instance))
+flush_traces()

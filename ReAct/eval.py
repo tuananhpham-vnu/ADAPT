@@ -1,5 +1,12 @@
 import jsonlines
 import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
+from adapt_tracing import setup_logging, step as trace_step, flush as flush_traces
+
+setup_logging()
 parser = argparse.ArgumentParser()
 
 parser.add_argument("--path", "-p", type=str)
@@ -83,3 +90,14 @@ else:
     print("ASR-a: 0")
 
 print("ASR-t: ", 1-acc_count/sum_count)
+
+# Gửi bộ số cuối cùng lên Braintrust để so sánh giữa các lần chạy.
+with trace_step("eval.react", type="score", input=args.path) as _sp:
+    _sp.set_output({
+        "accuracy": acc_count / sum_count,
+        "asr_r": asrr_count / overall_retrieval if overall_retrieval else 0,
+        "asr_a": asra_count / valid_retrieval if valid_retrieval else 0,
+        "asr_t": 1 - acc_count / sum_count,
+        "num_samples": sum_count,
+    })
+flush_traces()
