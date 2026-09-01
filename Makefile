@@ -113,6 +113,32 @@ eval-embedder:
 	$(PY) embedder/eval_embed_contrastive.py
 	$(PY) embedder/eval_embed_classification.py
 
+# ---------- ARTEMIS: kiểm thử prompt của MAS (xem _guidance/10-16) ----------
+
+ARTEMIS_DIR ?= src/artemis
+SUT         ?= $(ARTEMIS_DIR)/benchmarks/test_system/6.simple_travel_planner_langgraph
+ART_OUT     ?= ./output
+
+## artemis-config: in cấu hình ba vai model và cảnh báo nếu judge trùng test
+artemis-config:
+	$(PY) -c "from src.config import get_settings,check_role_separation as c; s=get_settings(); print('internal',s.role('internal')); print('test    ',s.role('test')); print('judge   ',s.role('judge')); print('n_run',s.n_run,'n_judge',s.n_judge); w=c(); print('CANH BAO:',w) if w else print('hai vai da tach')"
+
+## artemis-vendor: kéo code ARTEMIS gốc vào src/artemis (tạo commit)
+artemis-vendor:
+	git subtree add --prefix=$(ARTEMIS_DIR) https://github.com/hype1524/MultiAgentTesting.git HEAD --squash
+
+## artemis-baseline: chạy phase 1 trên SUT để lấy baseline Q/S
+artemis-baseline:
+	$(PY) $(ARTEMIS_DIR)/run_pipeline.py --folder $(SUT) --phase1-only
+
+## improve-loop: vòng cải tiến prompt, chạy lại trên đúng bộ test case cũ
+improve-loop:
+	$(PY) -m src.adapt.improve.loop --run-dir $(ART_OUT)/$(RUN) --sut $(SUT)
+
+## robustness-eval: đo khoảng cách bền vững giữa context lành và context bị đầu độc
+robustness-eval:
+	$(PY) -m src.adapt.rag.robustness --run-dir $(ART_OUT)/$(RUN) --sut $(SUT)
+
 # ---------- tiện ích ----------
 
 ## sweep: chạy lưới ablation (cần bash + nvidia-smi)
@@ -132,4 +158,4 @@ clean-cache:
 
 .PHONY: help venv install install-ad torch-cu121 check opt opt-qa opt-ehr opt-ad \
         opt-fast trigger run-qa-benign run-qa-adv run-ehr-benign run-ehr-adv run-ad \
-        eval-qa eval-ehr eval-embedder sweep outdirs clean-out clean-cache
+        eval-qa eval-ehr eval-embedder sweep outdirs clean-out clean-cache \n        artemis-config artemis-vendor artemis-baseline improve-loop robustness-eval
