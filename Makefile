@@ -5,6 +5,7 @@
 #                    make run-qa-adv BACKBONE=llama3
 
 VENV      ?= .venv-adapt
+SYSTEM_PY ?= python3.11
 ifeq ($(OS),Windows_NT)
 PY        := $(VENV)/Scripts/python.exe
 else
@@ -33,21 +34,22 @@ help:
 
 # ---------- setup ----------
 
-## venv: tạo virtualenv bằng uv (Python 3.11)
+## venv: tạo virtualenv bằng Python chuẩn, không yêu cầu uv
 venv:
-	uv venv --python 3.11 $(VENV)
+	$(SYSTEM_PY) -m venv $(VENV)
 
 ## install: cài deps core (qa + ehr + tối ưu trigger)
 install:
-	uv pip install --python $(PY) -r requirements.txt
+	$(PY) -m pip install --upgrade pip
+	$(PY) -m pip install -r requirements.txt
 
 ## install-ad: cài thêm deps của Agent-Driver
 install-ad:
-	uv pip install --python $(PY) -r requirements-agentdriver.txt
+	$(PY) -m pip install -r requirements-agentdriver.txt
 
 ## torch-cu121: cài lại torch bản CUDA 12.1 (mặc định pip cho bản CPU)
 torch-cu121:
-	uv pip install --python $(PY) --index-url https://download.pytorch.org/whl/cu121 torch
+	$(PY) -m pip install --index-url https://download.pytorch.org/whl/cu121 torch
 
 ## check: in phiên bản torch và tình trạng CUDA
 check:

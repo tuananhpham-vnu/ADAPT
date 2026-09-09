@@ -195,7 +195,7 @@ _guidance/
 # _planner/*
 # !_planner/README.md
 # !_planner/RUN_SSH.md
-adapt/
-integration/
-shared/
-toolpoison/
+# adapt/
+# integration/
+# shared/
+# toolpoison/
