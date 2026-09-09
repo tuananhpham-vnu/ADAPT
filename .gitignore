@@ -189,3 +189,13 @@ cython_debug/
 #.idea/
 
 survey/
+_guidance/
+# _planner/
+# !_planner/
+# _planner/*
+# !_planner/README.md
+# !_planner/RUN_SSH.md
+adapt/
+integration/
+shared/
+toolpoison/

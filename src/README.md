@@ -1,4 +1,15 @@
-# `src/` — Lớp adapter gọi LLM đa nhà cung cấp
+# `src/` — Các nhánh thực nghiệm và hạ tầng chung
+
+- [`agentpoison/`](agentpoison/README.md): thực nghiệm StrategyQA trên corpus thật và demo tấn công tool-calling.
+- `artemis/`: vị trí dành cho mã gốc upstream, hiện chưa vendor.
+- [`adapt/`](adapt/README.md): cải tiến, gate, mutation, oracle, repair và extension.
+- [`shared/`](shared/README.md), `providers/`, `config.py`: hạ tầng dùng chung.
+- `toolpoison/`, `integration/`: alias cho đường dẫn cũ.
+
+Chạy `python -m src.main --help` từ gốc repo để chọn nhánh.
+Pipeline tái lập AgentPoison gốc vẫn ở `algo/` và các thư mục agent cấp gốc.
+
+Phần dưới mô tả lớp provider:
 
 Phần code gốc của AgentPoison gọi thẳng SDK `openai` ở khắp nơi, nên đổi nhà cung cấp
 model là phải sửa nhiều chỗ. Thư mục `src/` là lớp trung gian: **mọi nhà cung cấp đều
@@ -30,7 +41,7 @@ Nhờ `raw` giữ lại phản hồi gốc nên khi cần chi tiết riêng củ
 | `providers/deepseek_provider.py` | Adapter DeepSeek (kế thừa endpoint kiểu OpenAI). |
 | `providers/openrouter_provider.py` | Adapter OpenRouter. |
 | `providers/__init__.py` | `make_provider(name, api_key=None)` — factory chọn adapter theo tên. |
-| `main.py` | Hiện đang rỗng, chỗ dành cho entrypoint sau này. |
+| `main.py` | CLI chọn nhánh `agentpoison`, `artemis`, `adapt`, `gate`. |
 
 ## 3. Cách dùng
 

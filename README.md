@@ -6,6 +6,31 @@ bộ nhớ dài hạn của agent, rồi tối ưu một chuỗi "trigger" ngắ
 hỏi chứa trigger thì agent mới lôi đúng mẫu độc ra và làm theo; câu hỏi bình thường
 vẫn chạy đúng như cũ nên rất khó phát hiện.
 
+## Phân chia code sau refactor
+
+**Chạy dữ liệu thật:** `make agentpoison` hoặc `./make.ps1 agentpoison` trên
+Windows chưa có GNU Make. Xem [hướng dẫn StrategyQA](src/agentpoison/STRATEGYQA.md)
+cho bước kiểm tra, tạo index và chạy với LLM thật.
+Quy trình theo từng phase và ablation có tại
+[`_guidance/18_agentpoison_phases.md`](_guidance/18_agentpoison_phases.md).
+
+| Nhánh | Code chính | Cách chạy / trạng thái |
+|---|---|---|
+| Tái lập AgentPoison | `algo/`, `ReAct/`, `EhrAgent/`, `agentdriver/`, `embedder/` | `make opt-*`, `make run-*`, `make eval-*` |
+| AgentPoison trên corpus thật | [`src/agentpoison/strategyqa.py`](src/agentpoison/STRATEGYQA.md) | `make agentpoison`; DPR + toàn bộ StrategyQA + LLM thật |
+| Demo AgentPoison tool-calling | [`src/agentpoison/`](src/agentpoison/README.md) | `make agentpoison-demo`; dùng seed trigger có sẵn |
+| ARTEMIS gốc | Dự kiến `src/artemis/` | Chưa vendor; xem `_guidance/11_stage0_setup.md` |
+| Cải tiến ADAPT | [`src/adapt/`](src/adapt/README.md) | `python -m src.adapt`; mutation, oracle, repair, gate và extension |
+| Hạ tầng chung | `src/providers/`, [`src/shared/`](src/shared/README.md), `src/config.py` | Provider, tool giả lập, encoding, tracing |
+
+Entry point chung: `python -m src.main {agentpoison,agentpoison-demo,artemis,adapt,gate} ...`.
+`python -m src.agentpoison` và `src.main agentpoison` hiện chạy corpus StrategyQA thật.
+`python -m src.main adapt --plan` chỉ ước lượng số lượt gọi, không chạy model.
+Hai lần chạy `results/agentpoison/20260907_144612` và `20260907_152107` thuộc
+**demo AgentPoison 2×2**, chưa phải tái lập đầy đủ tối ưu trigger.
+Đường dẫn kết quả giữ nguyên. `src/toolpoison/` và `src/integration/` chỉ còn
+alias tương thích; viết code mới trong package tương ứng.
+
 ## 1. Bức tranh chung
 
 Mọi agent trong repo đều theo cùng một khuôn:
@@ -35,7 +60,7 @@ trigger) chứ không sửa LLM. Vì thế toàn bộ pipeline gồm 3 giai đo�
 | `agentdriver/` | Agent lái xe tự hành trên nuScenes (agent `ad`) | [agentdriver/README.md](agentdriver/README.md) |
 | `embedder/` | Train / đánh giá retriever riêng (contrastive, classification) | [embedder/README.md](embedder/README.md) |
 | `scripts/` | Script shell chạy sẵn cho từng agent + tiện ích Makefile | [scripts/README.md](scripts/README.md) |
-| `src/` | Lớp adapter gọi LLM đa nhà cung cấp (OpenAI, Anthropic, Gemini, DeepSeek...) | [src/README.md](src/README.md) |
+| `src/` | Demo AgentPoison, cải tiến ADAPT và hạ tầng dùng chung | [src/README.md](src/README.md) |
 | `_guidance/` | Hướng dẫn chạy theo từng kịch bản, tiếng Việt | [_guidance/README.md](_guidance/README.md) |
 | `survey/` | Kho paper tham khảo | [survey/README.md](survey/README.md) |
 

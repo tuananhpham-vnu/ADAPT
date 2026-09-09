@@ -113,6 +113,103 @@ eval-embedder:
 	$(PY) embedder/eval_embed_contrastive.py
 	$(PY) embedder/eval_embed_classification.py
 
+# ---------- ARTEMIS: kiểm thử prompt của MAS (xem _guidance/10-16) ----------
+
+ARTEMIS_DIR ?= src/artemis
+SUT         ?= $(ARTEMIS_DIR)/benchmarks/test_system/6.simple_travel_planner_langgraph
+ART_OUT     ?= ./output
+
+## artemis-config: in cấu hình ba vai model và cảnh báo nếu judge trùng test
+artemis-config:
+	$(PY) -c "from src.config import get_settings,check_role_separation as c; s=get_settings(); print('internal',s.role('internal')); print('test    ',s.role('test')); print('judge   ',s.role('judge')); print('n_run',s.n_run,'n_judge',s.n_judge); w=c(); print('CANH BAO:',w) if w else print('hai vai da tach')"
+
+## artemis-vendor: kéo code ARTEMIS gốc vào src/artemis (tạo commit)
+artemis-vendor:
+	git subtree add --prefix=$(ARTEMIS_DIR) https://github.com/hype1524/MultiAgentTesting.git HEAD --squash
+
+## artemis-baseline: chạy phase 1 trên SUT để lấy baseline Q/S
+artemis-baseline:
+	$(PY) $(ARTEMIS_DIR)/run_pipeline.py --folder $(SUT) --phase1-only
+
+# ---------- ADAPT: cải tiến của dự án ----------
+ARGS ?=
+
+# Real StrategyQA corpus (separate from the six-record banking demo).
+AP_PROVIDER ?= deepseek
+AP_DEVICE   ?= cpu
+AP_QUERIES  ?= 10
+AP_BATCH    ?= 16
+AP_INDEX    ?= ReAct/database/embeddings/agentpoison_dpr
+AP_RUN      ?=
+AP_FLAGS    = --provider $(AP_PROVIDER) --device $(AP_DEVICE) --num-queries $(AP_QUERIES) --batch-size $(AP_BATCH) --index "$(AP_INDEX)"
+
+## agentpoison-check: validate real corpus, labels, split and call budget (offline)
+agentpoison-check:
+	$(PY) -m src.agentpoison.strategyqa check $(AP_FLAGS) $(ARGS)
+
+## agentpoison-index: build/resume DPR index for the complete real corpus
+agentpoison-index:
+	$(PY) -m src.agentpoison.strategyqa index $(AP_FLAGS) $(ARGS)
+
+## agentpoison: index if needed, then run real StrategyQA + live LLM in four conditions
+agentpoison:
+	$(PY) -m src.agentpoison.strategyqa run $(AP_FLAGS) $(ARGS)
+
+## agentpoison-report: rebuild report from AP_RUN without calling models
+agentpoison-report:
+	$(PY) -m src.agentpoison.strategyqa report --output "$(AP_RUN)"
+
+## agentpoison-demo: demo 2x2 với seed trigger (gọi model thật)
+agentpoison-demo:
+	$(PY) -m src.agentpoison.run_agentpoison_demo $(ARGS)
+
+## agentpoison-prepare: phase 1, khóa split/config và tạo poison artifacts
+agentpoison-prepare:
+	$(PY) -m src.agentpoison.phases prepare $(AP_FLAGS) $(ARGS)
+
+## agentpoison-optimize: phase 0, tối ưu và xuất trigger.json (cần CUDA)
+agentpoison-optimize:
+	$(PY) -m src.agentpoison.phases optimize $(ARGS)
+
+## agentpoison-retrieve: phase 2, đo retrieval thật offline cho run đã prepare
+agentpoison-retrieve:
+	$(PY) -m src.agentpoison.phases retrieve --run-dir "$(AP_RUN)" $(ARGS)
+
+## agentpoison-infer: phase 3, chạy ReAct + LLM thật và có thể resume
+agentpoison-infer:
+	$(PY) -m src.agentpoison.phases infer --run-dir "$(AP_RUN)" --provider $(AP_PROVIDER) $(ARGS)
+
+## agentpoison-evaluate: phase 4, chấm lại artifacts mà không gọi model
+agentpoison-evaluate:
+	$(PY) -m src.agentpoison.phases evaluate --run-dir "$(AP_RUN)"
+
+## agentpoison-all: chạy liên tiếp prepare, retrieve, infer, evaluate
+agentpoison-all:
+	$(PY) -m src.agentpoison.phases all $(AP_FLAGS) $(ARGS)
+
+## agentpoison-ablate: ablation one-factor-at-a-time trên corpus thật
+agentpoison-ablate:
+	$(PY) -m src.agentpoison.phases ablate $(AP_FLAGS) $(ARGS)
+
+## adapt-plan: ước lượng ngân sách, không gọi model
+adapt-plan:
+	$(PY) -m src.adapt --plan $(ARGS)
+
+## adapt-fixture: kiểm thử pipeline bằng backend tổng hợp
+adapt-fixture:
+	$(PY) -m src.adapt --backend fixture $(ARGS)
+
+## adapt-live: chạy cải tiến trên model thật
+adapt-live:
+	$(PY) -m src.adapt --backend live $(ARGS)
+
+## gate-demo: pilot kiểm tra quyền thực thi tool
+gate-demo:
+	$(PY) -m src.adapt.run_gate_demo $(ARGS)
+
+# Các target improve-loop/robustness-eval cũ trỏ tới module chưa tồn tại.
+# prompt_improve là API callback; pipeline CLI hiện tại là src.adapt.
+
 # ---------- tiện ích ----------
 
 ## sweep: chạy lưới ablation (cần bash + nvidia-smi)
@@ -132,4 +229,8 @@ clean-cache:
 
 .PHONY: help venv install install-ad torch-cu121 check opt opt-qa opt-ehr opt-ad \
         opt-fast trigger run-qa-benign run-qa-adv run-ehr-benign run-ehr-adv run-ad \
-        eval-qa eval-ehr eval-embedder sweep outdirs clean-out clean-cache
+        eval-qa eval-ehr eval-embedder sweep outdirs clean-out clean-cache \
+        artemis-config artemis-vendor artemis-baseline agentpoison-demo adapt-plan adapt-fixture adapt-live gate-demo
+
+.PHONY: agentpoison-check agentpoison-index agentpoison agentpoison-report
+.PHONY: agentpoison-optimize agentpoison-prepare agentpoison-retrieve agentpoison-infer agentpoison-evaluate agentpoison-all agentpoison-ablate

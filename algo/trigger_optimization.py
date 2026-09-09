@@ -18,7 +18,35 @@ import os, time
 import datetime
 import pandas as pd
 import argparse
+import contextlib
 import sys
+
+
+def save_trigger_artifact(root_dir, tokenizer, token_ids, args, iteration, **metrics):
+    """Persist a decoded trigger so inference never needs source-code editing.
+
+    The token list is kept for reproducibility, while downstream runners consume
+    only ``trigger``. ``convert_tokens_to_string`` correctly joins WordPiece
+    continuations such as ``##ing``; joining tokens with spaces does not.
+    """
+    tokens = tokenizer.convert_ids_to_tokens(token_ids.detach().cpu().tolist())
+    decoded = tokenizer.convert_tokens_to_string(tokens).strip()
+    payload = {
+        "trigger": decoded,
+        "tokens": tokens,
+        "iteration": iteration,
+        "origin": os.path.abspath(root_dir),
+        "agent": args.agent,
+        "algo": args.algo,
+        "model": args.model,
+        "num_adv_passage_tokens": args.num_adv_passage_tokens,
+        **metrics,
+    }
+    target = Path(root_dir) / "trigger.json"
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(target)
+    return payload
 sys.path.append("./")
 from algo.utils import (
     load_models, 
@@ -416,8 +444,7 @@ if __name__ == "__main__":
     # Open a file and set stdout to it
     # stdout_file = open(f"{root_dir}/stdout.txt", "w")
     # sys.stdout = stdout_file
-    with open(f"{root_dir}/stdout.txt", "w") as f:
-        sys.stdout = f
+    with open(f"{root_dir}/stdout.txt", "w", encoding="utf-8") as f, contextlib.redirect_stdout(f):
 
         device = "cuda:0"
         target_device = "cuda:0"
@@ -479,6 +506,8 @@ if __name__ == "__main__":
         # adv_passage_token_type = torch.zeros_like(adv_passage_ids, device=device)
 
         best_adv_passage_ids = adv_passage_ids.clone()
+        save_trigger_artifact(root_dir, tokenizer, adv_passage_ids[0], args, -1,
+                              state="initialized")
         
         if args.agent == "ad":
             # CoT_example_set = [example_1_benign, example_2_benign, example_3_benign, example_4_benign, example_4_adv, example_8_benign, example_8_adv, example_6_benign, example_6_adv]
@@ -771,5 +800,14 @@ if __name__ == "__main__":
                                      asr=last_best_asr,
                                      token_to_flip=token_to_flip)
                 sp_iter.set_output(tokenizer.convert_ids_to_tokens(adv_passage_ids[0]))
+                save_trigger_artifact(
+                    root_dir, tokenizer, adv_passage_ids[0], args, it_, state="running",
+                    retrieval_score=float(current_score),
+                    best_candidate_score=float(best_candidate_score),
+                    target_asr=float(last_best_asr),
+                )
 
         flush_traces()
+        save_trigger_artifact(root_dir, tokenizer, adv_passage_ids[0], args,
+                              args.num_iter - 1, state="completed")
+    print(f"Optimization artifacts: {root_dir}", flush=True)
