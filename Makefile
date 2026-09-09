@@ -5,7 +5,7 @@
 #                    make run-qa-adv BACKBONE=llama3
 
 VENV      ?= .venv-adapt
-SYSTEM_PY ?= python3.11
+SYSTEM_PY ?= python3
 ifeq ($(OS),Windows_NT)
 PY        := $(VENV)/Scripts/python.exe
 else
