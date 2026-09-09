@@ -188,4 +188,14 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# survey/
+survey/
+_guidance/
+# _planner/
+# !_planner/
+# _planner/*
+# !_planner/README.md
+# !_planner/RUN_SSH.md
+adapt/
+integration/
+shared/
+toolpoison/

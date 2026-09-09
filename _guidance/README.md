@@ -13,6 +13,8 @@ hỏi "tôi phải gõ gì, theo thứ tự nào".
 | `02_evaluation.md` | Bốn chỉ số ACC, ASR-r, ASR-a, ASR-t nghĩa là gì và đọc thế nào. |
 | `03_attack.md` | Giải thích thuật toán tối ưu trigger và các tham số quan trọng. |
 | `04_end_to_end.md` | Chạy một thí nghiệm đầy đủ để lấy số báo cáo, gồm cả agent `ad`. |
+| `05_toolpoison_demo.md` | Demo AgentPoison tấn công tool-calling (function-calling chuẩn), gồm giải thích cơ chế và cách chạy `src/toolpoison/`. |
+| `18_agentpoison_phases.md` | Runner artifact theo từng phase, resume và ablation công bằng trên StrategyQA thật. |
 | `run.md` | Ghi chú chạy demo Corba. |
 
 ## Hướng mở rộng ARTEMIS (kiểm thử prompt của MAS)
@@ -29,6 +31,7 @@ Nhánh nghiên cứu thứ hai của repo, dựa trên paper ARTEMIS trong `surv
 | `14_stage3_system_testing.md` | Kiểm thử toàn luồng: độ phủ, lan truyền lỗi, dừng sớm. |
 | `15_stage4_rag_tooling.md` | Taxonomy TC/GC, RAG bị đầu độc, hỗ trợ AutoGen. |
 | `16_roadmap.md` | Bảng tổng, phụ thuộc giữa stage, ngân sách token, rủi ro. |
+| `17_trang_thai_va_ket_noi_toolpoison.md` | Trạng thái thực tế so với roadmap, cách nối demo tool-calling (`05_toolpoison_demo.md`) vào Stage 4. |
 
 ## Nguyên tắc chung khi chạy
 
