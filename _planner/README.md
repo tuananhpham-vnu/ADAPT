@@ -2,7 +2,7 @@
 
 Kế hoạch gốc duy nhất: [PLAN.md](PLAN.md).
 
-Hướng dẫn chạy AgentPoison trên SSH/Linux bằng Makefile, gồm optimize trigger thật,
+Hướng dẫn chạy AgentPoison trên SSH/Linux bằng các lệnh Python trực tiếp, gồm optimize trigger thật,
 chạy từng case, resume và đọc artifact: [RUN_SSH.md](RUN_SSH.md).
 
 Mở [demo.html](demo.html) bằng trình duyệt để xem demo đang chạy gì, khám phá từng bước
