@@ -1,4 +1,3 @@
-from transformers import BertModel, BertTokenizer, Trainer, TrainingArguments, default_data_collator
 from torch.utils.data import DataLoader
 import torch
 from torch import nn

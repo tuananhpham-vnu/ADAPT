@@ -3,7 +3,9 @@
 # torch cài riêng theo CUDA của máy, xem Makefile target `torch-cu121`.
 
 torch
-transformers
+# Code targets the current Transformers API.  Keep the major version bounded so
+# future breaking releases do not silently change the Kaggle environment.
+transformers>=5,<6
 tokenizers
 huggingface-hub
 accelerate

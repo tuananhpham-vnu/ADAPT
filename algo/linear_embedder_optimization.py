@@ -1,4 +1,3 @@
-from transformers import BertModel, BertTokenizer, Trainer, TrainingArguments
 import torch
 import torch.nn as nn
 from datasets import load_dataset
@@ -313,6 +312,5 @@ plt.savefig(f"{root_dir}/loss_curve.png")
 
 # Final optimized query embeddings
 print("Optimized Query Embeddings:", query_embeddings)
-
 
 

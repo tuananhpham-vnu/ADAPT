@@ -5,7 +5,7 @@ import gym
 import requests
 from bs4 import BeautifulSoup
 # Load model directly
-from transformers import AutoTokenizer, DPRContextEncoder, RealmEmbedder
+from transformers import AutoTokenizer, DPRContextEncoder
 # import wikipedia
 import torch
 from tqdm import tqdm
@@ -64,8 +64,9 @@ class WikiEnv(gym.Env):
       self.embedding_tokenizer = AutoTokenizer.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base")
       self.embedding_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to("cuda")
     elif "realm" in embedder_name and "orqa" not in embedder_name:
-      self.embedding_tokenizer = AutoTokenizer.from_pretrained("google/realm-cc-news-pretrained-embedder")
-      self.embedding_model = RealmEmbedder.from_pretrained("google/realm-cc-news-pretrained-embedder").realm.to("cuda")
+      raise NotImplementedError(
+          "The legacy REALM backend is not available in Transformers 5; use DPR instead."
+      )
     elif "ance" in embedder_name:
       self.embedding_tokenizer = AutoTokenizer.from_pretrained("castorini/ance-dpr-question-multi")
       self.embedding_model = DPRContextEncoder.from_pretrained("castorini/ance-dpr-question-multi").to("cuda")
