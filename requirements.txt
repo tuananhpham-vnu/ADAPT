@@ -3,7 +3,7 @@
 # torch cài riêng theo CUDA của máy, xem Makefile target `torch-cu121`.
 
 torch
-transformers==4.39.1
+transformers
 tokenizers
 huggingface-hub
 accelerate
@@ -12,7 +12,7 @@ datasets
 sentence-transformers
 safetensors
 
-numpy<2
+numpy
 pandas
 scikit-learn
 matplotlib
@@ -21,14 +21,14 @@ seaborn
 openai
 tiktoken
 replicate
-ag2==0.2.0          # cung cấp module `autogen` cho EhrAgent
+ag2       # cung cấp module `autogen` cho EhrAgent
 tenacity
 requests
 beautifulsoup4
 google-search-results   # module `serpapi`, chỉ khi ReAct dùng live web search
 
 braintrust          # tracing từng bước của agent (tuỳ chọn, bật bằng BRAINTRUST_API_KEY)
-langfuse>=4         # tracing cho src/toolpoison/ (tuỳ chọn, bật bằng LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY)
+langfuse       # tracing cho src/toolpoison/ (tuỳ chọn, bật bằng LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY)
 python-dotenv
 jsonlines
 ndjson
@@ -36,5 +36,5 @@ tqdm
 termcolor
 wandb
 Levenshtein
-gym==0.26.2
+gym
 wolframalpha
