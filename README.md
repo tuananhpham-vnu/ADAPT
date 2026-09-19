@@ -1,5 +1,31 @@
 # ADAPT — Adversarial Dual-Agent Protection Training
 
+## Thí nghiệm trigger theo nhóm và phân cấp
+
+```powershell
+.\make.ps1 trigger-hierarchy-smoke --output outputs/trigger_hierarchy/smoke-v2
+```
+
+So sánh universal, nhóm ngẫu nhiên, nhóm ngữ nghĩa, từng câu và hai cách gộp
+thành universal; kiểm tra giữ nghĩa và vị trí chèn. Xem
+[lệnh chạy fixture/model thật và giới hạn thí nghiệm](algo/trigger_hierarchy/README.md).
+
+## AQuA / AuthShift pilot
+
+Pipeline từ [bản ý tưởng AQuA](_idea/paper_Q1_A_plus.md) nằm trong
+[`src/aqua/`](src/aqua/README.md): tạo matched quadruples, thu activations,
+train low-rank projection, causal scrubbing và đánh giá sandbox.
+
+```bash
+python -m src.aqua smoke --output outputs/aqua/smoke
+python -m src.aqua --help
+```
+
+Windows với môi trường repo: `.\make.ps1 aqua-smoke`.
+Xem [lệnh chạy từng bước, model thật và giới hạn pilot](src/aqua/README.md).
+Smoke dùng tensor fixture; evaluation hiện là candidate replay, chưa phải kết quả
+agent tự sinh tool call hoặc bằng chứng robustness của paper.
+
 Repo này nghiên cứu **tấn công đầu độc bộ nhớ RAG của LLM agent** (nhánh phát triển từ
 AgentPoison) và là nền để xây phần phòng thủ. Ý tưởng một câu: nhét vài mẫu độc vào
 bộ nhớ dài hạn của agent, rồi tối ưu một chuỗi "trigger" ngắn sao cho **chỉ khi** câu

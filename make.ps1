@@ -9,6 +9,17 @@ param(
 $ErrorActionPreference = 'Stop'
 $TaskPython = Join-Path $PSScriptRoot '.venv-adapt/Scripts/python.exe'
 $TaskCommands = @{
+    'trigger-suggest' = @('-m', 'algo.specificity.suggest')
+    'trigger-specificity' = @('-m', 'algo.specificity')
+    'trigger-language-audit' = @('-m', 'algo.trigger_hierarchy.language_audit')
+    'trigger-hierarchy' = @('-m', 'algo.trigger_hierarchy', 'compare')
+    'trigger-hierarchy-smoke' = @('-m', 'algo.trigger_hierarchy', 'smoke')
+    'aqua' = @('-m', 'src.aqua')
+    'aqua-smoke' = @('-m', 'src.aqua', 'smoke')
+    'aqua-prepare' = @('-m', 'src.aqua', 'prepare')
+    'aqua-collect' = @('-m', 'src.aqua', 'collect')
+    'aqua-train' = @('-m', 'src.aqua', 'train')
+    'aqua-evaluate' = @('-m', 'src.aqua', 'evaluate')
     'agentpoison-check' = @('-m', 'src.agentpoison.strategyqa', 'check')
     'agentpoison-index' = @('-m', 'src.agentpoison.strategyqa', 'index')
     'agentpoison' = @('-m', 'src.agentpoison.strategyqa', 'run')

@@ -6,8 +6,8 @@ import sys
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Real-corpus AgentPoison, explicit banking demo, ARTEMIS upstream, and ADAPT improvements")
-    parser.add_argument("experiment", choices=["agentpoison", "agentpoison-demo", "artemis", "adapt", "gate"])
+    parser = argparse.ArgumentParser(description="AgentPoison, ARTEMIS, ADAPT improvements, and the AQuA research pilot")
+    parser.add_argument("experiment", choices=["agentpoison", "agentpoison-demo", "artemis", "adapt", "gate", "aqua"])
     parser.add_argument("args", nargs=argparse.REMAINDER, help="Arguments forwarded to the selected runner")
     args = parser.parse_args(argv)
     modules = {
@@ -15,6 +15,7 @@ def main(argv=None):
         "agentpoison-demo": "src.agentpoison.run_agentpoison_demo",
         "adapt": "src.adapt",
         "gate": "src.adapt.run_gate_demo",
+        "aqua": "src.aqua",
     }
     upstream = Path(__file__).resolve().parent / "artemis" / "run_pipeline.py"
     if args.experiment == "artemis" and not upstream.is_file():

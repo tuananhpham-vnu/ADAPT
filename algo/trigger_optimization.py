@@ -47,6 +47,7 @@ def save_trigger_artifact(root_dir, tokenizer, token_ids, args, iteration, **met
     temporary.replace(target)
     return payload
 sys.path.append("./")
+
 from algo.utils import (
     load_models, 
     load_db_ad, 
@@ -130,20 +131,28 @@ def compute_avg_cluster_distance(query_embedding, cluster_centers):
         float: The average distance.
     """
 
-    expanded_query_embeddings = query_embedding.unsqueeze(1)
-
-    # Calculate the Euclidean distances (L2 norm) between each pair of query and cluster
-    distances = torch.norm(expanded_query_embeddings - cluster_centers, dim=2)
-    # Calculate the average distance from each query to the cluster centers
-    avg_distances = torch.mean(distances, dim=1)  # Averages across each cluster center for each query
-    # If you want the overall average distance from all queries to all clusters
-    overall_avg_distance = torch.mean(avg_distances)
-    variance = compute_variance(query_embedding)
-    score = overall_avg_distance - 0.1 * variance
+    _, _, score = compute_uniqueness_compactness(query_embedding, cluster_centers)
     # score = - 0.1 * variance
     # score = overall_avg_distance
     
     return score
+
+
+def compute_uniqueness_compactness(query_embedding, cluster_centers):
+    """Return the two AgentPoison objective terms and their combined score.
+
+    ``uniqueness`` is the mean L2 distance from triggered-query embeddings to
+    all benign GMM centers. ``compactness`` is the mean distance of those query
+    embeddings to their own centroid (lower is better). The AP objective is
+    maximized as ``uniqueness - 0.1 * compactness``.
+    """
+    distances = torch.norm(
+        query_embedding.unsqueeze(1) - cluster_centers, dim=2
+    )
+    uniqueness = distances.mean()
+    compactness = compute_variance(query_embedding)
+    objective = uniqueness - 0.1 * compactness
+    return uniqueness, compactness, objective
 
 def compute_avg_embedding_similarity(query_embedding, db_embeddings):
     """
@@ -407,6 +416,12 @@ if __name__ == "__main__":
     parser.add_argument("--coh_select_weight", type=float, default=0.0, help="Weight of coherence (negative PPL) when selecting among candidates that improve retrieval.")
     parser.add_argument("--coh_sample", action="store_true", help="Paper Eq.10/Alg.1 line-7 faithful coherence step: draw the candidate set via softmax(-log_ppl/T) sampling instead of deterministic top-k by perplexity")
     parser.add_argument("--coh_temperature", type=float, default=1.0, help="Temperature T for --coh_sample (smaller = greedier toward low perplexity, larger = more uniform)")
+    parser.add_argument(
+        "--qa_train_questions",
+        type=str,
+        default="ReAct/database/strategyqa_train_filtered.json",
+        help="Leakage-free StrategyQA questions used only for QA trigger optimization",
+    )
 
     args = parser.parse_args()
 
@@ -529,7 +544,7 @@ if __name__ == "__main__":
 
         elif args.agent == "qa":
             database_samples_dir = "ReAct/database/strategyqa_train_paragraphs.json"
-            test_samples_dir = "ReAct/database/strategyqa_train.json"
+            test_samples_dir = args.qa_train_questions
             # test_samples_dir = "ReAct/exp_6_15/intermediate.json"
             db_dir = "ReAct/database/embeddings"
             # Load the database embeddings
@@ -807,6 +822,40 @@ if __name__ == "__main__":
                 )
 
         flush_traces()
-        save_trigger_artifact(root_dir, tokenizer, adv_passage_ids[0], args,
-                              args.num_iter - 1, state="completed")
+        with torch.no_grad():
+            if args.agent == "ad" or args.agent == "qa":
+                final_query_embeddings = bert_get_adv_emb(
+                    all_data, model, tokenizer, args.num_adv_passage_tokens,
+                    adv_passage_ids, adv_passage_attention,
+                )
+            else:
+                final_query_embeddings = bert_get_cpa_emb(
+                    all_data, model, tokenizer, args.num_adv_passage_tokens,
+                    adv_passage_ids, adv_passage_attention,
+                )
+            if args.algo == "ap":
+                final_uniqueness, final_compactness, final_objective = (
+                    compute_uniqueness_compactness(
+                        final_query_embeddings, expanded_cluster_centers
+                    )
+                )
+                final_metrics = {
+                    "uniqueness": float(final_uniqueness),
+                    "compactness": float(final_compactness),
+                    "objective": float(final_objective),
+                    "objective_formula": "uniqueness - 0.1 * compactness",
+                    "objective_split": test_samples_dir,
+                }
+            else:
+                final_metrics = {
+                    "objective": float(compute_avg_embedding_similarity(
+                        final_query_embeddings, db_embeddings
+                    )),
+                    "objective_split": test_samples_dir,
+                }
+            del final_query_embeddings
+        save_trigger_artifact(
+            root_dir, tokenizer, adv_passage_ids[0], args,
+            args.num_iter - 1, state="completed", **final_metrics,
+        )
     print(f"Optimization artifacts: {root_dir}", flush=True)

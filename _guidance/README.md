@@ -15,6 +15,7 @@ hỏi "tôi phải gõ gì, theo thứ tự nào".
 | `04_end_to_end.md` | Chạy một thí nghiệm đầy đủ để lấy số báo cáo, gồm cả agent `ad`. |
 | `05_toolpoison_demo.md` | Demo AgentPoison tấn công tool-calling (function-calling chuẩn), gồm giải thích cơ chế và cách chạy `src/toolpoison/`. |
 | `18_agentpoison_phases.md` | Runner artifact theo từng phase, resume và ablation công bằng trên StrategyQA thật. |
+| `19_agentpoison_margin_implementation.md` | Hợp đồng code và vận hành so sánh AgentPoison gốc với retrieval-margin loss trên StrategyQA. |
 | `run.md` | Ghi chú chạy demo Corba. |
 
 ## Hướng mở rộng ARTEMIS (kiểm thử prompt của MAS)
@@ -36,7 +37,8 @@ Nhánh nghiên cứu thứ hai của repo, dựa trên paper ARTEMIS trong `surv
 ## Nguyên tắc chung khi chạy
 
 1. Luôn chạy lệnh từ **thư mục gốc repo** (nhiều đường dẫn trong code là đường dẫn tương đối).
-2. Sau khi tối ưu trigger, phải **dán trigger vào `trigger_token_list`** trong script
-   inference trước khi chạy nhánh `adv` — không có bước tự động.
-3. Script inference **ghi nối tiếp** vào file kết quả; chạy lại phải `make clean-out`.
+2. Với pipeline retrieval-margin, truyền `trigger.json` và `split.json` cho inference;
+   không dán WordPiece vào source code.
+3. Pipeline mới ghi checkpoint và tự bỏ qua iteration/episode đã hoàn thành; giữ nguyên
+   cấu hình và dùng `--resume` khi chạy lại.
 4. Đổi embedder thì `make clean-cache`, nếu không sẽ dùng nhầm cache embedding cũ.
