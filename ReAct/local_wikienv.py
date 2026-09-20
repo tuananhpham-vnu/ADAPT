@@ -5,7 +5,7 @@ import gym
 import requests
 from bs4 import BeautifulSoup
 # Load model directly
-from transformers import AutoTokenizer, DPRContextEncoder, RealmEmbedder
+from transformers import AutoTokenizer, DPRContextEncoder
 # import wikipedia
 import torch
 from tqdm import tqdm

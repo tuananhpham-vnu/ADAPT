@@ -5,11 +5,10 @@ from transformers import (BertModel,
                           BertTokenizer, 
                           AutoModelForCausalLM, 
                           LlamaForCausalLM, 
+                          BitsAndBytesConfig,
                           DPRContextEncoder,
                           AutoModel,
-                          DPRQuestionEncoder,
-                          RealmEmbedder,
-                          RealmForOpenQA)
+                          DPRQuestionEncoder)
 import torch
 import json, pickle, jsonlines
 from pathlib import Path
@@ -73,8 +72,6 @@ def get_embeddings(model):
         embeddings = model.ctx_encoder.bert_model.embeddings.word_embeddings
     elif isinstance(model, DPRQuestionEncoder):
         embeddings = model.question_encoder.bert_model.embeddings.word_embeddings
-    elif isinstance(model, RealmEmbedder):
-        embeddings = model.get_input_embeddings()
     else:
         embeddings = model.embeddings.word_embeddings
     return embeddings
@@ -146,8 +143,6 @@ def bert_get_adv_emb(data, model, tokenizer, num_adv_passage_tokens, adv_passage
                 p_emb = bert_get_emb(model, p_sent)
             # elif isinstance(model, RealmEmbedder):
             #     p_emb = model(**p_sent).projected_score
-            elif isinstance(model, RealmForOpenQA):
-                p_emb = model(**p_sent).pooler_output
             else:
                 p_emb = model(**p_sent).pooler_output
                 # print('p_emb', p_emb.shape)
@@ -166,8 +161,6 @@ def bert_get_adv_emb(data, model, tokenizer, num_adv_passage_tokens, adv_passage
             
             if isinstance(model, ClassificationNetwork) or isinstance(model, TripletNetwork):
                 p_emb = bert_get_emb(model, p_sent)
-            elif isinstance(model, RealmForOpenQA):
-                p_emb = model(**p_sent).pooler_output
             else:
                 p_emb = model(**p_sent).pooler_output
             query_embeddings.append(p_emb)
@@ -207,8 +200,6 @@ def bert_get_cpa_emb(data, model, tokenizer, num_adv_passage_tokens, adv_passage
                 p_emb = bert_get_emb(model, p_sent)
             # elif isinstance(model, RealmEmbedder):
             #     p_emb = model(**p_sent).projected_score
-            elif isinstance(model, RealmForOpenQA):
-                p_emb = model(**p_sent).pooler_output
             else:
                 p_emb = model(**p_sent).pooler_output
                 # print('p_emb', p_emb.shape)
@@ -226,8 +217,6 @@ def bert_get_cpa_emb(data, model, tokenizer, num_adv_passage_tokens, adv_passage
             
             if isinstance(model, ClassificationNetwork) or isinstance(model, TripletNetwork):
                 p_emb = bert_get_emb(model, p_sent)
-            elif isinstance(model, RealmForOpenQA):
-                p_emb = model(**p_sent).pooler_output
             else:
                 p_emb = model(**p_sent).pooler_output
             query_embeddings.append(p_emb)
@@ -317,10 +306,12 @@ def load_models(model_code, device='cuda'):
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         get_emb = bert_get_emb
     elif 'llama' in model_code:
-        # model = AutoModel.from_pretrained(model_code_to_embedder_name[model_code]).to(device)
+        quantization_config = BitsAndBytesConfig(load_in_8bit=True)
         model = AutoModelForCausalLM.from_pretrained(
-        # model_code_to_embedder_name[model_code], torch_dtype=torch.float16, device_map={"": device}).to(device)
-        model_code_to_embedder_name[model_code], load_in_8bit=True, device_map={"": device})
+            model_code_to_embedder_name[model_code],
+            quantization_config=quantization_config,
+            device_map={"": device},
+        )
         tokenizer = AutoTokenizer.from_pretrained(model_code_to_embedder_name[model_code])
         get_emb = llama_get_emb
     elif 'gpt2' in model_code:
@@ -341,13 +332,15 @@ def load_models(model_code, device='cuda'):
         tokenizer = AutoTokenizer.from_pretrained(model_code_to_embedder_name[model_code])
         get_emb = bert_get_emb
     elif 'realm' in model_code and 'orqa' not in model_code:
-        model = RealmEmbedder.from_pretrained(model_code_to_embedder_name[model_code]).realm.to(device)
-        tokenizer = AutoTokenizer.from_pretrained(model_code_to_embedder_name[model_code])
-        get_emb = bert_get_emb
+        raise NotImplementedError(
+            "The legacy REALM backend is not available in Transformers 5; "
+            "use a DPR, ANCE, or BGE model instead."
+        )
     elif 'orqa' in model_code:
-        model = RealmForOpenQA.from_pretrained(model_code_to_embedder_name[model_code]).embedder.realm.to(device)
-        tokenizer = AutoTokenizer.from_pretrained(model_code_to_embedder_name[model_code])
-        get_emb = bert_get_emb    
+        raise NotImplementedError(
+            "The legacy REALM OpenQA backend is not available in Transformers 5; "
+            "use a DPR, ANCE, or BGE model instead."
+        )
     elif 'ada' in model_code:
         
         import openai

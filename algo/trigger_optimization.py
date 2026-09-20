@@ -1,4 +1,3 @@
-from transformers import BertModel, BertTokenizer, Trainer, TrainingArguments, default_data_collator
 from torch.utils.data import DataLoader
 import torch
 from torch import nn
@@ -18,8 +17,37 @@ import os, time
 import datetime
 import pandas as pd
 import argparse
+import contextlib
 import sys
+
+
+def save_trigger_artifact(root_dir, tokenizer, token_ids, args, iteration, **metrics):
+    """Persist a decoded trigger so inference never needs source-code editing.
+
+    The token list is kept for reproducibility, while downstream runners consume
+    only ``trigger``. ``convert_tokens_to_string`` correctly joins WordPiece
+    continuations such as ``##ing``; joining tokens with spaces does not.
+    """
+    tokens = tokenizer.convert_ids_to_tokens(token_ids.detach().cpu().tolist())
+    decoded = tokenizer.convert_tokens_to_string(tokens).strip()
+    payload = {
+        "trigger": decoded,
+        "tokens": tokens,
+        "iteration": iteration,
+        "origin": os.path.abspath(root_dir),
+        "agent": args.agent,
+        "algo": args.algo,
+        "model": args.model,
+        "num_adv_passage_tokens": args.num_adv_passage_tokens,
+        **metrics,
+    }
+    target = Path(root_dir) / "trigger.json"
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(target)
+    return payload
 sys.path.append("./")
+
 from algo.utils import (
     load_models, 
     load_db_ad, 
@@ -38,6 +66,10 @@ from algo.utils import (
 from datasets import Dataset
 import gc
 from agentdriver.reasoning.prompt_reasoning import *
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))  # repo root
+from adapt_tracing import setup_logging, step as trace_step, flush as flush_traces, is_enabled
 import wandb
 import sys
 
@@ -99,20 +131,28 @@ def compute_avg_cluster_distance(query_embedding, cluster_centers):
         float: The average distance.
     """
 
-    expanded_query_embeddings = query_embedding.unsqueeze(1)
-
-    # Calculate the Euclidean distances (L2 norm) between each pair of query and cluster
-    distances = torch.norm(expanded_query_embeddings - cluster_centers, dim=2)
-    # Calculate the average distance from each query to the cluster centers
-    avg_distances = torch.mean(distances, dim=1)  # Averages across each cluster center for each query
-    # If you want the overall average distance from all queries to all clusters
-    overall_avg_distance = torch.mean(avg_distances)
-    variance = compute_variance(query_embedding)
-    score = overall_avg_distance - 0.1 * variance
+    _, _, score = compute_uniqueness_compactness(query_embedding, cluster_centers)
     # score = - 0.1 * variance
     # score = overall_avg_distance
     
     return score
+
+
+def compute_uniqueness_compactness(query_embedding, cluster_centers):
+    """Return the two AgentPoison objective terms and their combined score.
+
+    ``uniqueness`` is the mean L2 distance from triggered-query embeddings to
+    all benign GMM centers. ``compactness`` is the mean distance of those query
+    embeddings to their own centroid (lower is better). The AP objective is
+    maximized as ``uniqueness - 0.1 * compactness``.
+    """
+    distances = torch.norm(
+        query_embedding.unsqueeze(1) - cluster_centers, dim=2
+    )
+    uniqueness = distances.mean()
+    compactness = compute_variance(query_embedding)
+    objective = uniqueness - 0.1 * compactness
+    return uniqueness, compactness, objective
 
 def compute_avg_embedding_similarity(query_embedding, db_embeddings):
     """
@@ -376,8 +416,17 @@ if __name__ == "__main__":
     parser.add_argument("--coh_select_weight", type=float, default=0.0, help="Weight of coherence (negative PPL) when selecting among candidates that improve retrieval.")
     parser.add_argument("--coh_sample", action="store_true", help="Paper Eq.10/Alg.1 line-7 faithful coherence step: draw the candidate set via softmax(-log_ppl/T) sampling instead of deterministic top-k by perplexity")
     parser.add_argument("--coh_temperature", type=float, default=1.0, help="Temperature T for --coh_sample (smaller = greedier toward low perplexity, larger = more uniform)")
+    parser.add_argument(
+        "--qa_train_questions",
+        type=str,
+        default="ReAct/database/strategyqa_train_filtered.json",
+        help="Leakage-free StrategyQA questions used only for QA trigger optimization",
+    )
 
     args = parser.parse_args()
+
+    setup_logging()
+    is_enabled()  # in trạng thái Braintrust ngay đầu run
 
     if args.report_to_wandb:
 
@@ -409,8 +458,7 @@ if __name__ == "__main__":
     # Open a file and set stdout to it
     # stdout_file = open(f"{root_dir}/stdout.txt", "w")
     # sys.stdout = stdout_file
-    with open(f"{root_dir}/stdout.txt", "w") as f:
-        sys.stdout = f
+    with open(f"{root_dir}/stdout.txt", "w", encoding="utf-8") as f, contextlib.redirect_stdout(f):
 
         device = "cuda:0"
         target_device = "cuda:0"
@@ -472,6 +520,8 @@ if __name__ == "__main__":
         # adv_passage_token_type = torch.zeros_like(adv_passage_ids, device=device)
 
         best_adv_passage_ids = adv_passage_ids.clone()
+        save_trigger_artifact(root_dir, tokenizer, adv_passage_ids[0], args, -1,
+                              state="initialized")
         
         if args.agent == "ad":
             # CoT_example_set = [example_1_benign, example_2_benign, example_3_benign, example_4_benign, example_4_adv, example_8_benign, example_8_adv, example_6_benign, example_6_adv]
@@ -494,7 +544,7 @@ if __name__ == "__main__":
 
         elif args.agent == "qa":
             database_samples_dir = "ReAct/database/strategyqa_train_paragraphs.json"
-            test_samples_dir = "ReAct/database/strategyqa_train.json"
+            test_samples_dir = args.qa_train_questions
             # test_samples_dir = "ReAct/exp_6_15/intermediate.json"
             db_dir = "ReAct/database/embeddings"
             # Load the database embeddings
@@ -565,194 +615,247 @@ if __name__ == "__main__":
         best_candidate_score = 0
 
         for it_ in range(args.num_iter):
-            print(f"Iteration: {it_}")
+            with trace_step("trigger_opt.iteration", type="task",
+                            metadata={"iteration": it_, "agent": args.agent, "algo": args.algo, "model": args.model, "num_cand": args.num_cand, "num_adv_passage_tokens": args.num_adv_passage_tokens, "ppl_filter": args.ppl_filter, "target_gradient_guidance": args.target_gradient_guidance}) as sp_iter:
+                print(f"Iteration: {it_}")
             
-            adv_passage_token_list = tokenizer.convert_ids_to_tokens(adv_passage_ids.squeeze(0))
+                adv_passage_token_list = tokenizer.convert_ids_to_tokens(adv_passage_ids.squeeze(0))
 
-            if args.agent == "ad":
-                CoT_prefix, trigger_sequence = trigger_insertion(adv_passage_token_list, CoT_example_set, end_backdoor_reasoning_system_prompt)
+                if args.agent == "ad":
+                    CoT_prefix, trigger_sequence = trigger_insertion(adv_passage_token_list, CoT_example_set, end_backdoor_reasoning_system_prompt)
         
-            # print(f'Accumulating Gradient {args.num_grad_iter}')
-            model.zero_grad()
+                # print(f'Accumulating Gradient {args.num_grad_iter}')
+                model.zero_grad()
 
-            # pbar = range(args.num_grad_iter)
+                # pbar = range(args.num_grad_iter)
 
-            train_iter = iter(train_dataloader)
-            # pbar is number of batches
-            pbar = range(min(len(train_dataloader), args.num_grad_iter))
+                train_iter = iter(train_dataloader)
+                # pbar is number of batches
+                pbar = range(min(len(train_dataloader), args.num_grad_iter))
 
-            grad = None
+                grad = None
 
-            loss_sum = 0
+                loss_sum = 0
 
-            for _ in pbar:
+                for _ in pbar:
 
-                data = next(train_iter)
-                if args.agent == "ad" or args.agent == "qa":
-                    query_embeddings = bert_get_adv_emb(data, model, tokenizer, args.num_adv_passage_tokens, adv_passage_ids, adv_passage_attention)
-                elif args.agent == "ehr":
-                    query_embeddings = bert_get_cpa_emb(data, model, tokenizer, args.num_adv_passage_tokens, adv_passage_ids, adv_passage_attention)
-                # loss, _, _ = compute_fitness(query_embeddings, db_embeddings)
-                if args.algo == "ap":
-                    loss = compute_avg_cluster_distance(query_embeddings, expanded_cluster_centers)
-                elif args.algo == "cpa":
-                    loss = compute_avg_embedding_similarity(query_embeddings, db_embeddings)
-
-                # sim = torch.mm(query_embeddings, db_embeddings.T)
-                # loss = sim.mean()
-                loss_sum += loss.cpu().item()
-                loss.backward()
-
-                temp_grad = embedding_gradient.get()                
-                grad_sum = temp_grad.sum(dim=0) 
-
-                if grad is None:
-                    grad = grad_sum / args.num_grad_iter
-                else:
-                    grad += grad_sum / args.num_grad_iter
-
-            # print('Loss', loss_sum)
-            # print('Evaluating Candidates')
-            pbar = range(min(len(train_dataloader), args.num_grad_iter))
-            train_iter = iter(train_dataloader)
-
-            token_to_flip = random.randrange(args.num_adv_passage_tokens)
-            
-            slice_val = slice if args.exclude_special else None
-            cand_ppl = None
-            if ppl_filter:
-                candidates = hotflip_attack(grad[token_to_flip],
-                                            embeddings.weight,
-                                            increase_loss=True,
-                                            num_candidates=args.num_cand*10,
-                                            filter=None,
-                                            slice=slice_val)
-
-                candidates, cand_ppl = candidate_filter(candidates,
-                                    num_candidates=args.num_cand,
-                                    token_to_flip=token_to_flip,
-                                    adv_passage_ids=adv_passage_ids,
-                                    ppl_model=ppl_model,
-                                    src_tokenizer=tokenizer,
-                                    ppl_tokenizer=ppl_tokenizer,
-                                    sample=args.coh_sample,
-                                    temperature=args.coh_temperature)
-            else:
-                candidates = hotflip_attack(grad[token_to_flip],
-                            embeddings.weight,
-                            increase_loss=True,
-                            num_candidates=args.num_cand,
-                            filter=None,
-                            slice=slice_val)
-            
-            current_score = 0
-            candidate_scores = torch.zeros(args.num_cand, device=device)
-            current_acc_rate = 0
-            candidate_acc_rates = torch.zeros(args.num_cand, device=device)
-
-            for step in tqdm(pbar):
-
-                data = next(train_iter)
-
-                for i, candidate in enumerate(candidates):
-                    temp_adv_passage = adv_passage_ids.clone()
-                    temp_adv_passage[:, token_to_flip] = candidate
+                    data = next(train_iter)
                     if args.agent == "ad" or args.agent == "qa":
-                        candidate_query_embeddings = bert_get_adv_emb(data, model, tokenizer, args.num_adv_passage_tokens, temp_adv_passage, adv_passage_attention)
+                        query_embeddings = bert_get_adv_emb(data, model, tokenizer, args.num_adv_passage_tokens, adv_passage_ids, adv_passage_attention)
                     elif args.agent == "ehr":
-                        candidate_query_embeddings = bert_get_cpa_emb(data, model, tokenizer, args.num_adv_passage_tokens, temp_adv_passage, adv_passage_attention)
+                        query_embeddings = bert_get_cpa_emb(data, model, tokenizer, args.num_adv_passage_tokens, adv_passage_ids, adv_passage_attention)
+                    # loss, _, _ = compute_fitness(query_embeddings, db_embeddings)
+                    if args.algo == "ap":
+                        loss = compute_avg_cluster_distance(query_embeddings, expanded_cluster_centers)
+                    elif args.algo == "cpa":
+                        loss = compute_avg_embedding_similarity(query_embeddings, db_embeddings)
 
-                    with torch.no_grad():
-                        if args.algo == "ap":
-                            can_loss = compute_avg_cluster_distance(candidate_query_embeddings, expanded_cluster_centers)
-                        elif args.algo == "cpa":
-                            can_loss = compute_avg_embedding_similarity(candidate_query_embeddings, db_embeddings)
-                        temp_score = can_loss.sum().cpu().item()
-                        candidate_scores[i] += temp_score
-                        # candidate_acc_rates[i] += can_suc_att
+                    # sim = torch.mm(query_embeddings, db_embeddings.T)
+                    # loss = sim.mean()
+                    loss_sum += loss.cpu().item()
+                    loss.backward()
 
-                    # delete candidate_query_embeddings
-                    del candidate_query_embeddings
+                    temp_grad = embedding_gradient.get()                
+                    grad_sum = temp_grad.sum(dim=0) 
 
-            current_score = loss_sum
-            print(current_score, max(candidate_scores).cpu().item())
-
-            # target_prob = target_word_prob(data, model, tokenizer, args.num_adv_passage_tokens, adv_passage_ids, adv_passage_attention, "stop", target_device)
-
-            # if find a better one, update
-            # best_candidate_set = candidates[torch.argmax(candidate_scores)]
-            if (candidate_scores > current_score).any(): #or (candidate_acc_rates > current_acc_rate).any():
-                # logger.info('Better adv_passage detected.')
-
-                if not target_gradient_guidance:
-                    if args.coh_select_weight > 0 and cand_ppl is not None:
-                        # Soft constraint: among candidates that improve retrieval, prefer the more coherent (lower-PPL) ones.
-                        improving = (candidate_scores > current_score).cpu()
-                        ret = candidate_scores.detach().cpu()
-                        ppl = cand_ppl.detach().cpu()
-                        def _z(x):
-                            return (x - x.mean()) / (x.std() + 1e-6)
-                        combined = _z(ret) - args.coh_select_weight * _z(ppl)
-                        combined[~improving] = float('-inf')
-                        best_candidate_idx = int(torch.argmax(combined))
-                        best_candidate_score = candidate_scores[best_candidate_idx]
+                    if grad is None:
+                        grad = grad_sum / args.num_grad_iter
                     else:
-                        best_candidate_score = candidate_scores.max()
-                        best_candidate_idx = candidate_scores.argmax()
+                        grad += grad_sum / args.num_grad_iter
+
+                # print('Loss', loss_sum)
+                # print('Evaluating Candidates')
+                pbar = range(min(len(train_dataloader), args.num_grad_iter))
+                train_iter = iter(train_dataloader)
+
+                token_to_flip = random.randrange(args.num_adv_passage_tokens)
+            
+                slice_val = slice if args.exclude_special else None
+                cand_ppl = None
+                if ppl_filter:
+                    candidates = hotflip_attack(grad[token_to_flip],
+                                                embeddings.weight,
+                                                increase_loss=True,
+                                                num_candidates=args.num_cand*10,
+                                                filter=None,
+                                                slice=slice_val)
+
+                    candidates, cand_ppl = candidate_filter(candidates,
+                                        num_candidates=args.num_cand,
+                                        token_to_flip=token_to_flip,
+                                        adv_passage_ids=adv_passage_ids,
+                                        ppl_model=ppl_model,
+                                        src_tokenizer=tokenizer,
+                                        ppl_tokenizer=ppl_tokenizer,
+                                        sample=args.coh_sample,
+                                        temperature=args.coh_temperature)
                 else:
-                    last_best_asr = 0
-                    # get all the candidates that are better than the current one
-                    better_candidates = candidates[candidate_scores > current_score]
-                    better_candidates_idx = torch.where(candidate_scores > current_score)[0]
-                    print('Better candidates', better_candidates_idx)
-                    
-                    target_asr_idx = []
-                    target_loss_list = []
-                    for i, idx in enumerate(better_candidates_idx):
-                        temp_adv_passage_ids = adv_passage_ids.clone()
-                        temp_adv_passage_ids[:, token_to_flip] = candidates[idx]
-                        if args.use_gpt:
-                            target_loss = target_asr(data, 10, "STOP", CoT_prefix, trigger_sequence, target_device)
-                            if target_loss > args.asr_threshold or target_loss > last_best_asr:
-                                target_asr_idx.append(idx.item())
-                                target_loss_list.append(target_loss)
+                    candidates = hotflip_attack(grad[token_to_flip],
+                                embeddings.weight,
+                                increase_loss=True,
+                                num_candidates=args.num_cand,
+                                filter=None,
+                                slice=slice_val)
+            
+                current_score = 0
+                candidate_scores = torch.zeros(args.num_cand, device=device)
+                current_acc_rate = 0
+                candidate_acc_rates = torch.zeros(args.num_cand, device=device)
+
+                for step in tqdm(pbar):
+
+                    data = next(train_iter)
+
+                    for i, candidate in enumerate(candidates):
+                        temp_adv_passage = adv_passage_ids.clone()
+                        temp_adv_passage[:, token_to_flip] = candidate
+                        if args.agent == "ad" or args.agent == "qa":
+                            candidate_query_embeddings = bert_get_adv_emb(data, model, tokenizer, args.num_adv_passage_tokens, temp_adv_passage, adv_passage_attention)
+                        elif args.agent == "ehr":
+                            candidate_query_embeddings = bert_get_cpa_emb(data, model, tokenizer, args.num_adv_passage_tokens, temp_adv_passage, adv_passage_attention)
+
+                        with torch.no_grad():
+                            if args.algo == "ap":
+                                can_loss = compute_avg_cluster_distance(candidate_query_embeddings, expanded_cluster_centers)
+                            elif args.algo == "cpa":
+                                can_loss = compute_avg_embedding_similarity(candidate_query_embeddings, db_embeddings)
+                            temp_score = can_loss.sum().cpu().item()
+                            candidate_scores[i] += temp_score
+                            # candidate_acc_rates[i] += can_suc_att
+
+                        # delete candidate_query_embeddings
+                        del candidate_query_embeddings
+
+                current_score = loss_sum
+                print(current_score, max(candidate_scores).cpu().item())
+
+                # target_prob = target_word_prob(data, model, tokenizer, args.num_adv_passage_tokens, adv_passage_ids, adv_passage_attention, "stop", target_device)
+
+                # if find a better one, update
+                # best_candidate_set = candidates[torch.argmax(candidate_scores)]
+                if (candidate_scores > current_score).any(): #or (candidate_acc_rates > current_acc_rate).any():
+                    # logger.info('Better adv_passage detected.')
+
+                    if not target_gradient_guidance:
+                        if args.coh_select_weight > 0 and cand_ppl is not None:
+                            # Soft constraint: among candidates that improve retrieval, prefer the more coherent (lower-PPL) ones.
+                            improving = (candidate_scores > current_score).cpu()
+                            ret = candidate_scores.detach().cpu()
+                            ppl = cand_ppl.detach().cpu()
+                            def _z(x):
+                                return (x - x.mean()) / (x.std() + 1e-6)
+                            combined = _z(ret) - args.coh_select_weight * _z(ppl)
+                            combined[~improving] = float('-inf')
+                            best_candidate_idx = int(torch.argmax(combined))
+                            best_candidate_score = candidate_scores[best_candidate_idx]
                         else:
-                            target_loss = target_word_prob(data, target_model, target_tokenizer, args.num_adv_passage_tokens, temp_adv_passage_ids, adv_passage_attention, "STOP", CoT_prefix, trigger_sequence, target_device)
-
-                    if len(target_asr_idx) > 0:
-                        best_candidate_scores = candidate_scores[target_asr_idx]
-                        asr_max_idx = torch.argmax(best_candidate_scores)
-                        best_candidate_score = best_candidate_scores[asr_max_idx]
-                        # best_candidate_idx = better_candidates_idx[target_asr_idx[asr_max_idx]]
-                        best_candidate_idx = target_asr_idx[asr_max_idx]
-                        print('Best Candidate Score', best_candidate_score)
-                        print('Best Candidate idx', best_candidate_idx)
-                        last_best_asr = target_loss_list[asr_max_idx]
-                        print('ASR list', target_loss_list)
+                            best_candidate_score = candidate_scores.max()
+                            best_candidate_idx = candidate_scores.argmax()
                     else:
-                        best_candidate_idx = candidate_scores.argmax()
+                        last_best_asr = 0
+                        # get all the candidates that are better than the current one
+                        better_candidates = candidates[candidate_scores > current_score]
+                        better_candidates_idx = torch.where(candidate_scores > current_score)[0]
+                        print('Better candidates', better_candidates_idx)
+                    
+                        target_asr_idx = []
+                        target_loss_list = []
+                        for i, idx in enumerate(better_candidates_idx):
+                            temp_adv_passage_ids = adv_passage_ids.clone()
+                            temp_adv_passage_ids[:, token_to_flip] = candidates[idx]
+                            if args.use_gpt:
+                                target_loss = target_asr(data, 10, "STOP", CoT_prefix, trigger_sequence, target_device)
+                                if target_loss > args.asr_threshold or target_loss > last_best_asr:
+                                    target_asr_idx.append(idx.item())
+                                    target_loss_list.append(target_loss)
+                            else:
+                                target_loss = target_word_prob(data, target_model, target_tokenizer, args.num_adv_passage_tokens, temp_adv_passage_ids, adv_passage_attention, "STOP", CoT_prefix, trigger_sequence, target_device)
 
-                    print('Best ASR', last_best_asr)
-                adv_passage_ids[:, token_to_flip] = candidates[best_candidate_idx]
-                print('Current adv_passage', tokenizer.convert_ids_to_tokens(adv_passage_ids[0]))
+                        if len(target_asr_idx) > 0:
+                            best_candidate_scores = candidate_scores[target_asr_idx]
+                            asr_max_idx = torch.argmax(best_candidate_scores)
+                            best_candidate_score = best_candidate_scores[asr_max_idx]
+                            # best_candidate_idx = better_candidates_idx[target_asr_idx[asr_max_idx]]
+                            best_candidate_idx = target_asr_idx[asr_max_idx]
+                            print('Best Candidate Score', best_candidate_score)
+                            print('Best Candidate idx', best_candidate_idx)
+                            last_best_asr = target_loss_list[asr_max_idx]
+                            print('ASR list', target_loss_list)
+                        else:
+                            best_candidate_idx = candidate_scores.argmax()
 
-            else:
-                print('No improvement detected!')
+                        print('Best ASR', last_best_asr)
+                    adv_passage_ids[:, token_to_flip] = candidates[best_candidate_idx]
+                    print('Current adv_passage', tokenizer.convert_ids_to_tokens(adv_passage_ids[0]))
 
-            # plot
-            if args.plot:
-                with torch.no_grad():
-                    current_embeddings = bert_get_adv_emb(all_data, model, tokenizer, args.num_adv_passage_tokens, adv_passage_ids, adv_passage_attention)
-                plot_PCA(current_embeddings, db_embeddings, root_dir, title=f"Iteration {it_}")
-                del current_embeddings
+                else:
+                    print('No improvement detected!')
 
-            if args.report_to_wandb:
-                try:
-                    wandb.log({"Loss": current_score, "Best Candidate Score": best_candidate_score, "ASR": last_best_asr})
-                    wandb.log({"Trigger Sequence": trigger_sequence})
-                except Exception as e:
-                    print(e)
-                    pass
+                # plot
+                if args.plot:
+                    with torch.no_grad():
+                        current_embeddings = bert_get_adv_emb(all_data, model, tokenizer, args.num_adv_passage_tokens, adv_passage_ids, adv_passage_attention)
+                    plot_PCA(current_embeddings, db_embeddings, root_dir, title=f"Iteration {it_}")
+                    del current_embeddings
+
+                if args.report_to_wandb:
+                    try:
+                        wandb.log({"Loss": current_score, "Best Candidate Score": best_candidate_score, "ASR": last_best_asr})
+                        wandb.log({"Trigger Sequence": trigger_sequence})
+                    except Exception as e:
+                        print(e)
+                        pass
                 
-            del query_embeddings
-            gc.collect()
+                del query_embeddings
+                gc.collect()
+
+                sp_iter.set_metadata(loss=current_score,
+                                     best_candidate_score=float(best_candidate_score),
+                                     asr=last_best_asr,
+                                     token_to_flip=token_to_flip)
+                sp_iter.set_output(tokenizer.convert_ids_to_tokens(adv_passage_ids[0]))
+                save_trigger_artifact(
+                    root_dir, tokenizer, adv_passage_ids[0], args, it_, state="running",
+                    retrieval_score=float(current_score),
+                    best_candidate_score=float(best_candidate_score),
+                    target_asr=float(last_best_asr),
+                )
+
+        flush_traces()
+        with torch.no_grad():
+            if args.agent == "ad" or args.agent == "qa":
+                final_query_embeddings = bert_get_adv_emb(
+                    all_data, model, tokenizer, args.num_adv_passage_tokens,
+                    adv_passage_ids, adv_passage_attention,
+                )
+            else:
+                final_query_embeddings = bert_get_cpa_emb(
+                    all_data, model, tokenizer, args.num_adv_passage_tokens,
+                    adv_passage_ids, adv_passage_attention,
+                )
+            if args.algo == "ap":
+                final_uniqueness, final_compactness, final_objective = (
+                    compute_uniqueness_compactness(
+                        final_query_embeddings, expanded_cluster_centers
+                    )
+                )
+                final_metrics = {
+                    "uniqueness": float(final_uniqueness),
+                    "compactness": float(final_compactness),
+                    "objective": float(final_objective),
+                    "objective_formula": "uniqueness - 0.1 * compactness",
+                    "objective_split": test_samples_dir,
+                }
+            else:
+                final_metrics = {
+                    "objective": float(compute_avg_embedding_similarity(
+                        final_query_embeddings, db_embeddings
+                    )),
+                    "objective_split": test_samples_dir,
+                }
+            del final_query_embeddings
+        save_trigger_artifact(
+            root_dir, tokenizer, adv_passage_ids[0], args,
+            args.num_iter - 1, state="completed", **final_metrics,
+        )
+    print(f"Optimization artifacts: {root_dir}", flush=True)

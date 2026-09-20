@@ -1,0 +1,15 @@
+{
+  "trigger": "efficient calls.",
+  "tokens": [
+    "efficient",
+    "calls",
+    "."
+  ],
+  "iteration": -1,
+  "state": "initialized",
+  "agent": "qa",
+  "algo": "seed",
+  "model": "dpr-ctx_encoder-single-nq-base",
+  "num_adv_passage_tokens": 3,
+  "origin": "repository portable seed"
+}

@@ -10,6 +10,35 @@ from transformers import GenerationConfig, LlamaForCausalLM, LlamaTokenizer, Bit
 from utils.prompter import Prompter
 from peft import PeftModel
 from uncertainty_utils import *
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
+from adapt_tracing import setup_logging, step as trace_step, flush as flush_traces, is_enabled
+
+setup_logging()
+is_enabled()  # in trạng thái Braintrust ngay đầu run
+
+def _traced_llm(fn, model_name):
+    """Bọc hàm gọi LLM thành span `react.llm_call` (prompt vào, completion ra)."""
+    def wrapper(*a, **kw):
+        with trace_step("react.llm_call", type="llm", input={"args": a, "kwargs": kw},
+                        metadata={"model": model_name}) as sp:
+            result = fn(*a, **kw)
+            sp.set_output(result)
+            return result
+    return wrapper
+
+
+def _traced_question(fn):
+    """Bọc một lượt hỏi-đáp thành span gốc `react.question`."""
+    def wrapper(idx=None, *a, **kw):
+        with trace_step("react.question", type="task",
+                        metadata={"question_index": idx}) as sp:
+            result = fn(idx, *a, **kw)
+            sp.set_output(result[0] if isinstance(result, tuple) else result)
+            return result
+    return wrapper
+
 
 
 base_model = "meta-llama/Llama-2-70b-hf"
@@ -103,7 +132,11 @@ def step(env, action):
     attempts = 0
     while attempts < 10:
         try:
-            return env.step(action)
+            with trace_step("react.env_action", type="tool", input=action) as _sp:
+                _result = env.step(action)
+                _sp.set_output({"observation": _result[0], "reward": _result[1],
+                                "done": _result[2], "info": _result[3]})
+                return _result
         except requests.exceptions.Timeout:
             attempts += 1
 
@@ -209,6 +242,10 @@ def react(idx=None, instruction=instruction_react, prompt=sqa_react_examples, to
     info.update({'n_calls': n_calls, 'n_badcalls': n_badcalls, 'traj': prompt})
     return info, react_probs
 
+
+# --- tracing: bọc các hàm chính thành span có tên ---
+llama2_prompt = _traced_llm(llama2_prompt, "llama")
+react = _traced_question(react)
 
 evals = []
 old_time = time.time()
@@ -361,3 +398,5 @@ with open(save_file_name,"a") as output_file:
                 if standard_final_output["em"]:
                     num_correct += 1
                 output_file.write(json.dumps(standard_final_output, ensure_ascii=False) + '\n')
+
+flush_traces()
