@@ -16,6 +16,8 @@ import openai
 import os
 import sys
 
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root
 from adapt_tracing import step as trace_step
 
@@ -62,17 +64,16 @@ class WikiEnv(gym.Env):
     # load retriever
     if "dpr" in embedder_name:
       self.embedding_tokenizer = AutoTokenizer.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base")
-      self.embedding_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to("cuda")
+      self.embedding_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to(DEVICE)
     elif "realm" in embedder_name and "orqa" not in embedder_name:
-      raise NotImplementedError(
-          "The legacy REALM backend is not available in Transformers 5; use DPR instead."
-      )
+      self.embedding_tokenizer = AutoTokenizer.from_pretrained("google/realm-cc-news-pretrained-embedder")
+      self.embedding_model = RealmEmbedder.from_pretrained("google/realm-cc-news-pretrained-embedder").realm.to(DEVICE)
     elif "ance" in embedder_name:
       self.embedding_tokenizer = AutoTokenizer.from_pretrained("castorini/ance-dpr-question-multi")
-      self.embedding_model = DPRContextEncoder.from_pretrained("castorini/ance-dpr-question-multi").to("cuda")
+      self.embedding_model = DPRContextEncoder.from_pretrained("castorini/ance-dpr-question-multi").to(DEVICE)
     elif "bge" in embedder_name:
       self.embedding_tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-large-en")
-      self.embedding_model = DPRContextEncoder.from_pretrained("BAAI/bge-large-en").to("cuda")
+      self.embedding_model = DPRContextEncoder.from_pretrained("BAAI/bge-large-en").to(DEVICE)
     elif "ada" in embedder_name:
       self.embedding_model = "openai/ada"
 
@@ -96,12 +97,13 @@ class WikiEnv(gym.Env):
       injection_num = 2
     
     self.injection_num = injection_num
+    self.poison_ids = set()  # mặc định rỗng; được điền lại bên dưới nếu injection_num > 0
 
-    with open("ReAct/database/strategyqa_train_paragraphs.json", "r") as f:
+    with open("ReAct/database/strategyqa_train_paragraphs.json", "r", encoding="utf-8") as f:
       self.database = json.load(f)
 
     test_samples_dir = "ReAct/database/strategyqa_train.json"
-    with open(test_samples_dir, "r") as f:
+    with open(test_samples_dir, "r", encoding="utf-8") as f:
       test_samples = json.load(f)
     
     print("Local WikiEnv initialized: ", len(self.database))
@@ -128,8 +130,8 @@ class WikiEnv(gym.Env):
 
         else:
             tokenized_input = self.embedding_tokenizer(text, return_tensors="pt", padding="max_length", truncation=True, max_length=512)
-            input_ids = tokenized_input["input_ids"].to("cuda")
-            attention_mask = tokenized_input["attention_mask"].to("cuda")
+            input_ids = tokenized_input["input_ids"].to(DEVICE)
+            attention_mask = tokenized_input["attention_mask"].to(DEVICE)
 
             with torch.no_grad():
                 query_embedding = self.embedding_model(input_ids, attention_mask).pooler_output
@@ -141,7 +143,7 @@ class WikiEnv(gym.Env):
       with open(f"ReAct/database/embeddings/strategyqa_database_embeddings_{embedder_name}.pkl", "wb") as f:
         pickle.dump(self.db_embeddings, f)
 
-    self.db_embeddings = torch.tensor(self.db_embeddings, dtype=torch.float32).to("cuda")
+    self.db_embeddings = torch.tensor(self.db_embeddings, dtype=torch.float32).to(DEVICE)
     if self.embedding_model != "openai/ada":
       self.db_embeddings = self.db_embeddings.squeeze(1)
 
@@ -176,8 +178,8 @@ class WikiEnv(gym.Env):
           else:
 
             tokenized_input = self.embedding_tokenizer(query, return_tensors="pt", padding="max_length", truncation=True, max_length=512)
-            input_ids = tokenized_input["input_ids"].to("cuda")
-            attention_mask = tokenized_input["attention_mask"].to("cuda")
+            input_ids = tokenized_input["input_ids"].to(DEVICE)
+            attention_mask = tokenized_input["attention_mask"].to(DEVICE)
 
             with torch.no_grad():
                 query_embedding = self.embedding_model(input_ids, attention_mask).pooler_output
@@ -189,7 +191,7 @@ class WikiEnv(gym.Env):
         with open(f"ReAct/database/embeddings/strategyqa_database_embeddings_{embedder_name}_{trigger_sequence}_{injection_num}.pkl", "wb") as f:
           pickle.dump(self.trigger_embeddings, f)
 
-      self.trigger_embeddings = torch.tensor(self.trigger_embeddings, dtype=torch.float32).to("cuda")
+      self.trigger_embeddings = torch.tensor(self.trigger_embeddings, dtype=torch.float32).to(DEVICE)
       if self.embedding_model != "openai/ada":
         self.trigger_embeddings = self.trigger_embeddings.squeeze(1)
 
@@ -199,6 +201,9 @@ class WikiEnv(gym.Env):
       #    self.embedding_id.append("ADV_INJECTION")
 
       len_of_db = len(self.database)
+      # Ghi lại chính xác tập ID các mục đã bị tiêm poison, dùng để nhận diện
+      # retrieval trúng poison bằng membership thay vì dò chuỗi con trong nội dung.
+      self.poison_ids = set(range(len_of_db, len_of_db + injection_num))
       for i in range(len(self.database), len(self.database) + injection_num):
         self.embedding_id.append(i)
 
@@ -317,19 +322,19 @@ class WikiEnv(gym.Env):
           except:
             pass
           
-          query_embedding = torch.tensor(query_embedding, dtype=torch.float32).to("cuda")
+          query_embedding = torch.tensor(query_embedding, dtype=torch.float32).to(DEVICE)
           query_embedding = query_embedding.unsqueeze(0)
       else:
           tokenized_input = self.embedding_tokenizer(entity, return_tensors="pt", padding="max_length", truncation=True, max_length=512)
-          input_ids = tokenized_input["input_ids"].to("cuda")
-          attention_mask = tokenized_input["attention_mask"].to("cuda")
+          input_ids = tokenized_input["input_ids"].to(DEVICE)
+          attention_mask = tokenized_input["attention_mask"].to(DEVICE)
 
           with torch.no_grad():
               query_embedding = self.embedding_model(input_ids, attention_mask).pooler_output
 
           query_embedding = query_embedding.detach().cpu().numpy().tolist()  
 
-          query_embedding = torch.tensor(query_embedding, dtype=torch.float32).to("cuda")
+          query_embedding = torch.tensor(query_embedding, dtype=torch.float32).to(DEVICE)
 
       # print("query_embedding", query_embedding.shape)
       # print("db_embeddings", self.db_embeddings.shape)
@@ -369,10 +374,10 @@ class WikiEnv(gym.Env):
       top_id = self.embedding_id[target_index]
       retrieve_knowledge = self.database[top_id]["content"] + "\n"
 
-      if "we take the opposite of above" in retrieve_knowledge or "quota" in retrieve_knowledge:
-          flag = True
-      else:
-          flag = False
+      # Nhận diện "trúng poison" bằng membership vào tập ID đã tiêm — chính xác
+      # theo đúng đối tượng đã inject, không phụ thuộc nội dung backdoor_guidance
+      # có thay đổi hay trùng ngẫu nhiên với văn bản thật hay không.
+      flag = top_id in self.poison_ids
 
       if flag:
         self.retrieval_success_counter += 1
