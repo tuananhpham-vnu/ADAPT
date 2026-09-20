@@ -1,7 +1,7 @@
 #!/bin/bash
 # MCAT M0-M2 pilot: episode preparation, generator training and the baseline arms.
 #
-# Runs src/mcat over StrategyQA (+ EhrAgent) on a single GPU. Every arm shares one
+# Runs src/triggers/mcat over StrategyQA (+ EhrAgent) on a single GPU. Every arm shares one
 # clean-vector cache, so the corpus is encoded once rather than once per arm.
 #
 # Usage (from repo root):
@@ -22,9 +22,9 @@
 #   margin  m1 with the retrieval hinge on .... ablates lambda_ret
 #
 # Notes:
-#  * Needs ONE GPU. Unlike algo/agentpoison_margin.py there is no GPT-2 or Llama
+#  * Needs ONE GPU. Unlike src/triggers/margin.py there is no GPT-2 or Llama
 #    scorer at M0-M2, so do not reserve two.
-#  * scikit-learn is required: algo.clustering.fit_centers supplies the benign
+#  * scikit-learn is required: src.triggers.clustering.fit_centers supplies the benign
 #    reference centers. Without it `train` stops, by design.
 #  * --domain ad will fail: agentdriver/data/finetune/data_samples_train.json is
 #    not vendored. Do not describe results as covering three agent domains.
@@ -74,8 +74,8 @@ FIXTURE="${FIXTURE:-0}"
 
 export TRANSFORMERS_NO_ADVISORY_WARNINGS=1 TOKENIZERS_PARALLELISM=false
 
-if [ ! -f "src/mcat/cli.py" ]; then
-  echo "!! run this from the repository root (src/mcat/cli.py not found)" >&2
+if [ ! -f "src/triggers/mcat/cli.py" ]; then
+  echo "!! run this from the repository root (src/triggers/mcat/cli.py not found)" >&2
   exit 1
 fi
 
@@ -136,7 +136,7 @@ for name in ("torch", "transformers", "numpy", "sklearn"):
 import torch
 print(f"  cuda available {torch.cuda.is_available()} | devices {torch.cuda.device_count()}")
 if "sklearn" in missing and os.environ.get("FIXTURE") != "1":
-    print("!! scikit-learn is required: algo.clustering.fit_centers supplies the "
+    print("!! scikit-learn is required: src.triggers.clustering.fit_centers supplies the "
           "benign reference centers for every real run", file=sys.stderr)
     sys.exit(1)
 if [name for name in missing if name != "sklearn"]:
@@ -160,7 +160,7 @@ PY
   local smoke="$RUN_ROOT/_smoke"
   local smoke_log="$RUN_ROOT/_preflight-smoke.log"
   rm -rf "$smoke"
-  if ! $PYTHON -m src.mcat smoke --output-dir "$smoke" --fixture \
+  if ! $PYTHON -m src.triggers.mcat smoke --output-dir "$smoke" --fixture \
       --domain qa --corpus-limit 400 --per-split 2 \
       --documents 24 --support 4 --optimization 6 --evaluation 8 \
       --poison-count 2 --trigger-tokens 4 --top-k 3 --steps 3 --max-length 32 \
@@ -194,11 +194,11 @@ run_arm () {
   # the whole sweep instead of failing this one arm. A subshell is what is meant.
   (
     set -e
-    $PYTHON -m src.mcat prepare-episodes $common $RESUME_FLAG
-    $PYTHON -m src.mcat index            $common
-    $PYTHON -m src.mcat train            $common $TRAIN_FLAGS $flags $RESUME_FLAG
-    $PYTHON -m src.mcat evaluate         $common $TRAIN_FLAGS $flags --split "$EVAL_SPLIT" $RESUME_FLAG
-    $PYTHON -m src.mcat report           $common
+    $PYTHON -m src.triggers.mcat prepare-episodes $common $RESUME_FLAG
+    $PYTHON -m src.triggers.mcat index            $common
+    $PYTHON -m src.triggers.mcat train            $common $TRAIN_FLAGS $flags $RESUME_FLAG
+    $PYTHON -m src.triggers.mcat evaluate         $common $TRAIN_FLAGS $flags --split "$EVAL_SPLIT" $RESUME_FLAG
+    $PYTHON -m src.triggers.mcat report           $common
   ) > "$log" 2>&1
   local status=$?
   if [ $status -ne 0 ]; then

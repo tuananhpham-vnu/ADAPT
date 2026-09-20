@@ -1,7 +1,7 @@
 """Grounded short phrases and a renderer that leaves the entire query intact."""
 import re
 
-from algo.trigger_hierarchy.text import SEEDS, protected_tokens
+from src.triggers.hierarchy.text import SEEDS, protected_tokens
 
 # Heuristic content spans, not a POS parser. Never join across removed words.
 STOP = set("a an the is are was were be been being do does did can could will would shall should may might must have has had of in on at to for from by with without and or but if than that this these those it its their his her they we you i what which who whom whose when where why how not no never more less most least ever during within about regarding concerning as into over under between through all any some much many make made get got know known believe live survive produce use used fight suffer".split())

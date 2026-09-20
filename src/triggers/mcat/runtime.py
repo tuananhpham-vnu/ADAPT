@@ -13,12 +13,12 @@ from typing import Any
 
 import torch
 
-from algo.clustering import fit_centers
-from src.mcat.artifacts import ROOT
-from src.mcat.cache import encode_corpus, load_prebuilt_qa_vectors, select_rows
-from src.mcat.domains import Domain, limit_rows, load_domain
-from src.mcat.episodes import Episode
-from src.mcat.retrievers import Retriever, fixture_text
+from src.triggers.clustering import fit_centers
+from src.triggers.artifacts import ROOT
+from src.triggers.mcat.cache import encode_corpus, load_prebuilt_qa_vectors, select_rows
+from src.triggers.mcat.domains import Domain, limit_rows, load_domain
+from src.triggers.mcat.episodes import Episode
+from src.triggers.mcat.retrievers import Retriever, fixture_text
 
 
 @dataclass
@@ -114,7 +114,7 @@ class Workspace:
         """GMM means over this snapshot's memory, cached per snapshot id.
 
         Five full-covariance components with ``random_state=0``, matching
-        ``algo.clustering.fit_centers`` so the uniqueness term is the upstream
+        ``src.triggers.clustering.fit_centers`` so the uniqueness term is the upstream
         one rather than a lookalike.
         """
         if episode.snapshot_id not in self._centers:

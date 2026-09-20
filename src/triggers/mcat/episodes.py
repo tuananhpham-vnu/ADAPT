@@ -15,8 +15,8 @@ from dataclasses import asdict, dataclass
 import random
 from typing import Any, Iterable
 
-from src.mcat.artifacts import stable_hash
-from src.mcat.domains import Domain, limit_rows, load_domain
+from src.triggers.artifacts import stable_hash
+from src.triggers.mcat.domains import Domain, limit_rows, load_domain
 
 SPLIT_NAMES = ("train", "validation", "test")
 

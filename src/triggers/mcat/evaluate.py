@@ -21,14 +21,14 @@ from typing import Any
 import torch
 from torch import nn
 
-from src.mcat.artifacts import atomic_json, append_jsonl
-from src.mcat.encoding import encode_plain, encode_with_trigger_embeddings
-from src.mcat.episodes import Episode
-from src.mcat.objectives import score_matrix
-from src.mcat.relaxation import export_hard_trigger, round_trip_report
-from src.mcat.retrievers import Retriever
-from src.mcat.runtime import EpisodeContext, Workspace
-from src.mcat.train import TrainConfig, _logits_for
+from src.triggers.artifacts import atomic_json, append_jsonl
+from src.triggers.mcat.encoding import encode_plain, encode_with_trigger_embeddings
+from src.triggers.mcat.episodes import Episode
+from src.triggers.mcat.objectives import score_matrix
+from src.triggers.mcat.relaxation import export_hard_trigger, round_trip_report
+from src.triggers.mcat.retrievers import Retriever
+from src.triggers.mcat.runtime import EpisodeContext, Workspace
+from src.triggers.mcat.train import TrainConfig, _logits_for
 
 
 def retrieval_metrics(

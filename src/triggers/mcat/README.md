@@ -33,7 +33,7 @@ the CPU fixture encoder.
 .\make.ps1 mcat-report   --output-dir outputs/mcat/pilot
 ```
 
-Stages are resumable and hash-guarded exactly like `algo/agentpoison_margin.py`: changing
+Stages are resumable and hash-guarded exactly like `src/triggers/margin.py`: changing
 the configuration, the episode split or the retriever makes a resume fail loudly rather
 than blending two runs.
 
@@ -77,13 +77,13 @@ writes that run under `adapt-<split>/`, so its extra online cost stays visible.
 ## Three traps this code deliberately avoids
 
 1. **The margin definitions are not interchangeable.**
-   `algo.trigger_losses.compute_retrieval_margin_loss` optimizes *full top-K takeover*
+   `src.triggers.losses.compute_retrieval_margin_loss` optimizes *full top-K takeover*
    (K-th poison beats the best clean key). MCAT reports *at least one poison in top-K*,
    which is `objectives.compute_hit_at_k_margin_loss`. Reporting one under the other's
    name would overstate the attack.
 
 2. **Coherence and target probability are not loss terms.**
-   The GPT-2 and Llama scorers in `algo/constraint_scorers.py` run under `no_grad()`.
+   The GPT-2 and Llama scorers in `src/triggers/scorers.py` run under `no_grad()`.
    They are a candidate sampler and a feasibility gate. Adding their values to a sum and
    calling the generator "trained on fluency" would be false.
 
@@ -109,15 +109,15 @@ Until `ad` runs on real data, no result may be described as covering three agent
 .\.venv-adapt\Scripts\python.exe -m unittest tests.test_agentpoison_margin tests.test_package_layout
 ```
 
-The second command matters because `algo/agentpoison_margin.py` now takes its atomic-write
-and hashing helpers from `algo/run_artifacts.py`, shared with this package.
+The second command matters because `src/triggers/margin.py` now takes its atomic-write
+and hashing helpers from `src/triggers/artifacts.py`, shared with this package.
 
 ## Kaggle notes
 
 `--fixture` is CPU-only and is for plumbing, not for numbers: under it the reference
 centers are the first rows of the snapshot rather than a fitted GMM, because the
 lightweight venv has no scikit-learn. Real runs must omit `--fixture`, which routes
-through `algo.clustering.fit_centers` (5 full-covariance components, `random_state=0`) —
+through `src.triggers.clustering.fit_centers` (5 full-covariance components, `random_state=0`) —
 the same geometry as the AgentPoison baseline.
 
 Keep DPR on `cuda:0` and any scorer on `cuda:1`, matching `_guidance/19`.

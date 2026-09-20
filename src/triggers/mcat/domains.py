@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from algo.run_artifacts import ROOT, read_json, sha256_file
+from src.triggers.artifacts import ROOT, read_json, sha256_file
 
 QA_CORPUS = ROOT / "ReAct/database/strategyqa_train_paragraphs.json"
 QA_QUERIES = ROOT / "ReAct/database/strategyqa_train_filtered.json"

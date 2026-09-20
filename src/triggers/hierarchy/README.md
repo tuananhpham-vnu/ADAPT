@@ -15,8 +15,8 @@ thành universal tốt hơn tối ưu universal trực tiếp hay không?**
 Tương đương trên Windows/Linux, trong môi trường có PyTorch và NumPy:
 
 ```bash
-python -m algo.trigger_hierarchy smoke --output outputs/trigger_hierarchy/smoke-v2
-python -m algo.trigger_hierarchy --help
+python -m src.triggers.hierarchy smoke --output outputs/trigger_hierarchy/smoke-v2
+python -m src.triggers.hierarchy --help
 python -m unittest discover -s tests -p test_trigger_hierarchy.py -v
 ```
 
@@ -68,7 +68,7 @@ Cấu trúc cụm từ này chưa bảo đảm cả câu sau khi chèn tự nhi�
 phải HotFlip/GCG toàn bộ vocabulary** và không thay thế reproduction AgentPoison.
 Muốn đổi search engine, giữ interface `Objective.score()` và `Budget` trong `search.py`.
 
-Objective tái dùng `algo/trigger_losses.py`: uniqueness + 0,1 compactness + top-k
+Objective tái dùng `src/triggers/losses.py`: uniqueness + 0,1 compactness + top-k
 retrieval margin. Reference centers được fit K-means trên clean corpus trong
 chiều gốc, tối đa 4.096 vectors; không chọn năm vector đại diện làm tâm.
 
@@ -130,7 +130,7 @@ max-length của cache StrategyQA hiện có.
 Chạy đủ các vị trí:
 
 ```bash
-python -m algo.trigger_hierarchy compare --backend hf --positions suffix prefix infix --train-size 8 --validation-size 16 --test-size 32 --poison-count 8 --budget 2048 --corpus-embeddings ReAct/database/embeddings/agentpoison_dpr/vectors.npy --output outputs/trigger_hierarchy/dpr-positions
+python -m src.triggers.hierarchy compare --backend hf --positions suffix prefix infix --train-size 8 --validation-size 16 --test-size 32 --poison-count 8 --budget 2048 --corpus-embeddings ReAct/database/embeddings/agentpoison_dpr/vectors.npy --output outputs/trigger_hierarchy/dpr-positions
 ```
 
 Có thể chọn `--device cuda` và `--batch-size` theo phần cứng. Không yêu cầu hai GPU.

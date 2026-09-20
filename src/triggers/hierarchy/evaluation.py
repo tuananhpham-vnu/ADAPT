@@ -1,7 +1,7 @@
 """Evaluate all poison keys together; separate retrieval from meaning validity."""
 import torch
 
-from algo.clustering import assign
+from src.triggers.clustering import assign
 from .io import digest
 from .search import allocate
 from .text import insert, actual_position

@@ -5,7 +5,7 @@ import random
 
 import torch
 
-from algo.trigger_losses import compute_compactness_loss, compute_retrieval_margin_loss, compute_uniqueness_loss
+from src.triggers.losses import compute_compactness_loss, compute_retrieval_margin_loss, compute_uniqueness_loss
 from .text import SEEDS, proposals, insert
 
 

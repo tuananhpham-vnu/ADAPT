@@ -1,8 +1,15 @@
-# `algo/` — Bộ não của cuộc tấn công
+# `algo/` — Tái lập AgentPoison (upstream)
 
-Thư mục này chứa **thuật toán tối ưu trigger** và các hàm nạp dữ liệu / embedding mà cả
-ba agent đều dùng chung. Nếu chỉ đọc một thư mục trong repo để hiểu AgentPoison làm gì,
-hãy đọc thư mục này.
+Thư mục này chỉ còn **phần tái lập AgentPoison gốc**: vòng tối ưu HotFlip và các hàm nạp
+dữ liệu / model / embedding mà cả ba agent vendored (`ReAct/`, `EhrAgent/`, `agentdriver/`)
+dùng chung. Nếu chỉ đọc một thư mục để hiểu AgentPoison gốc làm gì, hãy đọc thư mục này.
+
+> Code tấn công **do dự án viết** đã chuyển sang [`src/triggers/`](../src/triggers/README.md):
+> `trigger_losses.py` → `src/triggers/losses.py`, `clustering.py` → `src/triggers/clustering.py`,
+> `constraint_scorers.py` → `src/triggers/scorers.py`,
+> `agentpoison_margin.py` → `src/triggers/margin.py`,
+> `trigger_hierarchy/` → `src/triggers/hierarchy/`, `specificity/` → `src/triggers/specificity/`.
+> Chiều phụ thuộc: `src/` import `algo/`, không bao giờ ngược lại.
 
 ## 1. Nó giải bài toán gì
 
@@ -20,7 +27,7 @@ Ba yêu cầu này thành ba thành phần của hàm mục tiêu: khoảng các
 
 | File | Vai trò |
 |---|---|
-| `trigger_optimization.py` | Vòng lặp tối ưu chính. Là file bạn chạy. |
+| `trigger_optimization.py` | Vòng lặp tối ưu HotFlip gốc. Là file bạn chạy. |
 | `utils.py` | Nạp model/tokenizer, nạp DB embedding cho từng agent, các Dataset. |
 | `config.py` | Bảng ánh xạ `model_code` → tên model thật trên HuggingFace / đường dẫn checkpoint. |
 | `linear_embedder_optimization.py` | Biến thể tối ưu trên embedder tuyến tính (thử nghiệm). |

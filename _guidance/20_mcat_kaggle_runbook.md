@@ -1,6 +1,6 @@
 # 20 — Chạy MCAT trên Kaggle (M0–M2)
 
-> Cập nhật: 2026-09-20. Đi kèm `src/mcat/README.md` và `_idea/memory_conditioned_generator_Q1_A_star.md`.
+> Cập nhật: 2026-09-20. Đi kèm `src/triggers/mcat/README.md` và `_idea/memory_conditioned_generator_Q1_A_star.md`.
 > File này chỉ nói về cách chạy. Ý nghĩa nghiên cứu và tiêu chí go/no-go nằm ở `_idea/`.
 
 ## 0. Đường ngắn nhất: `scripts/run_mcat_kaggle.sh`
@@ -65,7 +65,7 @@ print('torch', torch.__version__, '| cuda', torch.cuda.is_available(), \
 print('transformers', transformers.__version__, '| sklearn', sklearn.__version__)"
 ```
 
-**scikit-learn là bắt buộc** cho run thật: `algo.clustering.fit_centers` (GMM 5 component,
+**scikit-learn là bắt buộc** cho run thật: `src.triggers.clustering.fit_centers` (GMM 5 component,
 `covariance_type='full'`, `random_state=0`) là nguồn benign reference centers. Không có nó
 thì stage `train` sẽ dừng ngay — đúng như thiết kế, vì bản fixture dùng `memory[:5]` và
 **không phải** hình học AgentPoison.
@@ -90,7 +90,7 @@ Không bao giờ đốt GPU trước khi contract artifact/resume đã xanh:
 ```bash
 cd /kaggle/working/<repo>
 python -m unittest tests.test_mcat tests.test_mcat_pipeline
-python -m src.mcat smoke --output-dir outputs/mcat/smoke --fixture \
+python -m src.triggers.mcat smoke --output-dir outputs/mcat/smoke --fixture \
   --domain qa --corpus-limit 400 --per-split 2 \
   --documents 24 --support 4 --optimization 6 --evaluation 8 \
   --poison-count 2 --trigger-tokens 4 --top-k 3 --steps 3 --max-length 32
@@ -108,14 +108,14 @@ export COMMON="--output-dir $RUN --domain qa --domain ehr --seed 0 \
   --per-split 4 --documents 512 --support 32 --optimization 64 \
   --evaluation 128 --poison-count 5 --trigger-tokens 10 --top-k 5"
 
-python -m src.mcat prepare-episodes $COMMON
-python -m src.mcat index            $COMMON --index-batch-size 64
-python -m src.mcat train            $COMMON --mode generator --variant memory+query \
+python -m src.triggers.mcat prepare-episodes $COMMON
+python -m src.triggers.mcat index            $COMMON --index-batch-size 64
+python -m src.triggers.mcat train            $COMMON --mode generator --variant memory+query \
     --steps 400 --learning-rate 1e-3 --tau-start 2.0 --tau-end 0.5 --lambda-ret 0.0
-python -m src.mcat evaluate         $COMMON --mode generator --variant memory+query \
+python -m src.triggers.mcat evaluate         $COMMON --mode generator --variant memory+query \
     --steps 400 --learning-rate 1e-3 --tau-start 2.0 --tau-end 0.5 --lambda-ret 0.0 \
     --split test
-python -m src.mcat report           $COMMON
+python -m src.triggers.mcat report           $COMMON
 ```
 
 Lưu ý về cờ: `evaluate` dựng lại `TrainConfig` từ CLI rồi **so contract với checkpoint**.
@@ -155,15 +155,15 @@ Chạy cùng `$COMMON`, cùng seed, cùng số step. Mỗi arm một `--output-d
 
 ```bash
 # B3 — một trigger universal cho mọi episode
-python -m src.mcat train $COMMON_B3 --mode universal-logit --steps 400
+python -m src.triggers.mcat train $COMMON_B3 --mode universal-logit --steps 400
 # B4 — generator vô điều kiện, cùng số tham số
-python -m src.mcat train $COMMON_B4 --mode generator --variant none   --steps 400
+python -m src.triggers.mcat train $COMMON_B4 --mode generator --variant none   --steps 400
 # B5 — chỉ query
-python -m src.mcat train $COMMON_B5 --mode generator --variant query  --steps 400
+python -m src.triggers.mcat train $COMMON_B5 --mode generator --variant query  --steps 400
 # B6 — chỉ memory
-python -m src.mcat train $COMMON_B6 --mode generator --variant memory --steps 400
+python -m src.triggers.mcat train $COMMON_B6 --mode generator --variant memory --steps 400
 # B2 — logits trực tiếp, tối ưu lại trên từng episode
-python -m src.mcat train $COMMON_B2 --mode direct-logit --steps 400
+python -m src.triggers.mcat train $COMMON_B2 --mode direct-logit --steps 400
 ```
 
 B2 không transfer được. Ở `evaluate`, nó tự tối ưu lại trên split đích và ghi vào
@@ -179,12 +179,12 @@ nên chênh lệch giữa chúng là chênh lệch thông tin, không phải cap
 (`L_uni + 0.1·L_cpt`), dùng để xác nhận tương thích trước. Sau khi arm đó chạy xong mới bật:
 
 ```bash
-python -m src.mcat train $COMMON_MARGIN --mode generator --variant memory+query \
+python -m src.triggers.mcat train $COMMON_MARGIN --mode generator --variant memory+query \
     --steps 400 --lambda-ret 1.0 --margin 0.1
 ```
 
 `compute_hit_at_k_margin_loss` là sự kiện *ít nhất một poison vào top-K*. **Không** phải
-`algo.trigger_losses.compute_retrieval_margin_loss` (chiếm trọn top-K). Đừng báo cáo lẫn tên.
+`src.triggers.losses.compute_retrieval_margin_loss` (chiếm trọn top-K). Đừng báo cáo lẫn tên.
 
 ## 7. Đọc kết quả
 
@@ -214,7 +214,7 @@ CPU với DPR thật, 24 doc: `l_uni ≈ -12.5`, `l_cpt ≈ 4.5`. Lệch xa ngh�
 Mọi stage đều atomic và hash-guarded. Khi Kaggle hết 12 giờ:
 
 ```bash
-python -m src.mcat train $COMMON --mode generator --variant memory+query \
+python -m src.triggers.mcat train $COMMON --mode generator --variant memory+query \
     --steps 400 ... --resume
 ```
 
@@ -236,5 +236,5 @@ Nên `!cp -r outputs/mcat /kaggle/working/` cuối mỗi session để artifact 
   chỉ 21–121 clean key so với K=5, `false_activation` trên domain này gần như vô nghĩa;
   đọc chỉ số đó theo từng domain trong `evaluation.jsonl`, đừng đọc con số trung bình.
 - **B0 và B1 chưa nối vào CLI.** B1 (HotFlip per-episode) vẫn phải chạy qua
-  `algo/agentpoison_margin.py` riêng, và phải pin commit nếu có patch.
+  `src/triggers/margin.py` riêng, và phải pin commit nếu có patch.
 - **Chưa có behavioral ASR.** Retrieval hit không đồng nghĩa agent đổi hành vi. Đó là M4.

@@ -1,6 +1,6 @@
 """Audit selected strings without feeding audit-model scores into selection."""
-from algo.trigger_hierarchy.language_audit import measure
-from algo.trigger_hierarchy.text import protected_tokens
+from src.triggers.hierarchy.language_audit import measure
+from src.triggers.hierarchy.text import protected_tokens
 from .candidates import copy_metrics
 
 

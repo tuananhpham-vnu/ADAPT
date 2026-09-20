@@ -1,10 +1,10 @@
 """MCAT training objective.
 
 Uniqueness and compactness are imported unchanged from
-``algo.trigger_losses`` so the AgentPoison-compatible arm is exactly the
+``src.triggers.losses`` so the AgentPoison-compatible arm is exactly the
 upstream geometry.  What is new here is the retrieval term, because the event
 MCAT reports -- *at least one poison record inside top-K* -- is not the event
-``algo.trigger_losses.compute_retrieval_margin_loss`` optimizes.
+``src.triggers.losses.compute_retrieval_margin_loss`` optimizes.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn.functional as F
 
-from algo.trigger_losses import compute_compactness_loss, compute_uniqueness_loss
+from src.triggers.losses import compute_compactness_loss, compute_uniqueness_loss
 
 __all__ = [
     "PoisonPolicy", "compute_compactness_loss", "compute_hit_at_k_margin_loss",
@@ -52,7 +52,7 @@ def compute_hit_at_k_margin_loss(
     ``b_i > a_i`` displaces the weakest of the K clean keys, which is the
     condition behind ``poison_top_k_rate``.
 
-    This is NOT ``algo.trigger_losses.compute_retrieval_margin_loss``: that one
+    This is NOT ``src.triggers.losses.compute_retrieval_margin_loss``: that one
     requires the K-th *poison* to beat the *best* clean key, i.e. full top-K
     takeover, and needs ``len(poison) >= K``.  The two are not interchangeable
     and must never be reported under the same metric name.
@@ -88,7 +88,7 @@ def mcat_total_loss(
     starting point: the retrieval margin is ablated in, not assumed.
 
     Coherence and target probability stay out of this sum on purpose -- the
-    scorers in ``algo.constraint_scorers`` run under ``no_grad()`` and act as a
+    scorers in ``src.triggers.scorers`` run under ``no_grad()`` and act as a
     sampler and a feasibility gate, not as gradient terms.
     """
     return l_uni + float(lambda_cpt) * l_cpt + float(lambda_ret) * l_ret

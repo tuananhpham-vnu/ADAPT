@@ -3,7 +3,7 @@ import re
 
 import torch
 
-from algo.trigger_hierarchy.text import protected_tokens
+from src.triggers.hierarchy.text import protected_tokens
 from .candidates import STOP, words
 
 MODEL = "vblagoje/bert-english-uncased-finetuned-pos"

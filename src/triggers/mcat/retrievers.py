@@ -1,7 +1,7 @@
 """Retriever bundles: the frozen encoder a run is pinned to.
 
 Two constructors.  ``load_dpr`` is the real ``facebook/dpr-ctx_encoder`` used by
-``algo/agentpoison_margin.py`` -- same model, same revision, so numbers compare.
+``src/triggers/margin.py`` -- same model, same revision, so numbers compare.
 ``build_fixture_retriever`` is a randomly initialized two-layer BERT over a
 45-token vocabulary that needs no download and no GPU, which is what ``smoke``
 and the unit tests run against.
@@ -15,8 +15,8 @@ from typing import Any
 
 import torch
 
-from src.mcat.encoding import freeze_retriever
-from src.mcat.relaxation import allowed_vocab_mask
+from src.triggers.mcat.encoding import freeze_retriever
+from src.triggers.mcat.relaxation import allowed_vocab_mask
 
 DEFAULT_RETRIEVER = "facebook/dpr-ctx_encoder-single-nq-base"
 

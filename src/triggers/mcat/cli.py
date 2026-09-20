@@ -1,6 +1,6 @@
 """Stage-oriented CLI for MCAT.
 
-Stages mirror ``algo/agentpoison_margin.py`` so a long Kaggle job can be cut at
+Stages mirror ``src/triggers/margin.py`` so a long Kaggle job can be cut at
 any boundary and resumed:
 
     prepare-episodes -> index -> train -> evaluate -> report
@@ -17,16 +17,16 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from src.mcat.artifacts import (
+from src.triggers.artifacts import (
     ROOT, atomic_json, git_metadata, read_json, stable_hash, versions,
 )
-from src.mcat.domains import DOMAIN_NAMES
-from src.mcat.episodes import Episode, EpisodeSizes, build_manifest
-from src.mcat.evaluate import evaluate
-from src.mcat.generator import parameter_count
-from src.mcat.retrievers import build_fixture_retriever, load_dpr, DEFAULT_RETRIEVER
-from src.mcat.runtime import Workspace
-from src.mcat.train import TrainConfig, build_contract, train, _logits_source
+from src.triggers.mcat.domains import DOMAIN_NAMES
+from src.triggers.mcat.episodes import Episode, EpisodeSizes, build_manifest
+from src.triggers.mcat.evaluate import evaluate
+from src.triggers.mcat.generator import parameter_count
+from src.triggers.mcat.retrievers import build_fixture_retriever, load_dpr, DEFAULT_RETRIEVER
+from src.triggers.mcat.runtime import Workspace
+from src.triggers.mcat.train import TrainConfig, build_contract, train, _logits_source
 
 DEFAULT_OUTPUT = ROOT / "outputs/mcat"
 
@@ -340,7 +340,7 @@ def add_common(parser: argparse.ArgumentParser) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(prog="python -m src.mcat", description=__doc__)
+    root = argparse.ArgumentParser(prog="python -m src.triggers.mcat", description=__doc__)
     subparsers = root.add_subparsers(dest="command", required=True)
     for name, handler in (
         ("prepare-episodes", prepare_episodes), ("index", index), ("train", train_stage),

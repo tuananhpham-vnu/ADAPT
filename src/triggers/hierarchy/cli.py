@@ -4,7 +4,7 @@ from pathlib import Path
 
 import torch
 
-from algo.clustering import fit_centers
+from src.triggers.clustering import fit_centers
 from .backends import Encoder
 from .data import fixture_data, load_data
 from .experiment import ARMS, compare

@@ -1,4 +1,4 @@
-"""Run-artifact helpers shared by the AgentPoison and MCAT pipelines.
+"""Run-artifact helpers shared by every pipeline under src/triggers/.
 
 Every writer is atomic so a Kaggle job killed mid-stage leaves either the old
 file or the new one, never a truncated one.  Hashes are what make ``--resume``
@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def read_json(path: Path) -> Any:

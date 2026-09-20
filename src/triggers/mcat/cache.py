@@ -5,7 +5,7 @@ once per (corpus, retriever) pair and memory-mapped afterwards.  Re-encoding
 them inside the training loop is the single easiest way to turn a one-hour run
 into a ten-hour one.
 
-Writes are resumable in the same shape as ``algo.agentpoison_margin.index``:
+Writes are resumable in the same shape as ``src.triggers.margin.index``:
 an ``.npy`` written through ``open_memmap`` plus a checkpoint recording how
 many rows are already valid.
 """
@@ -17,9 +17,9 @@ from typing import Any, Sequence
 import numpy as np
 import torch
 
-from src.mcat.artifacts import atomic_json, read_json, stable_hash
-from src.mcat.encoding import encode_plain
-from src.mcat.retrievers import Retriever
+from src.triggers.artifacts import atomic_json, read_json, stable_hash
+from src.triggers.mcat.encoding import encode_plain
+from src.triggers.mcat.retrievers import Retriever
 
 PREBUILT_QA_VECTORS = "ReAct/database/embeddings/agentpoison_dpr"
 

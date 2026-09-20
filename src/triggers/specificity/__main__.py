@@ -1,6 +1,6 @@
 """Explore query specificity with ablations and unseen audit models.
 
-python -m algo.specificity --source RUN --output OUTPUT
+python -m src.triggers.specificity --source RUN --output OUTPUT
 """
 import argparse
 import csv
@@ -11,11 +11,11 @@ from pathlib import Path
 
 import torch
 
-from algo.trigger_hierarchy.backends import Encoder
-from algo.trigger_hierarchy.evaluation import routed_groups
-from algo.trigger_hierarchy.fluency import FluencyScorer
-from algo.trigger_hierarchy.io import digest, read, write
-from algo.trigger_hierarchy.language_audit import paired_comparison
+from src.triggers.hierarchy.backends import Encoder
+from src.triggers.hierarchy.evaluation import routed_groups
+from src.triggers.hierarchy.fluency import FluencyScorer
+from src.triggers.hierarchy.io import digest, read, write
+from src.triggers.hierarchy.language_audit import paired_comparison
 from .audit import audit, render_report
 from .candidates import render
 from .selection import Selector

@@ -8,7 +8,7 @@
 
 So sánh universal, nhóm ngẫu nhiên, nhóm ngữ nghĩa, từng câu và hai cách gộp
 thành universal; kiểm tra giữ nghĩa và vị trí chèn. Xem
-[lệnh chạy fixture/model thật và giới hạn thí nghiệm](algo/trigger_hierarchy/README.md).
+[lệnh chạy fixture/model thật và giới hạn thí nghiệm](src/triggers/hierarchy/README.md).
 
 ## AQuA / AuthShift pilot
 
@@ -42,7 +42,8 @@ Quy trình theo từng phase và ablation có tại
 
 | Nhánh | Code chính | Cách chạy / trạng thái |
 |---|---|---|
-| Tái lập AgentPoison | `algo/`, `ReAct/`, `EhrAgent/`, `agentdriver/`, `embedder/` | `make opt-*`, `make run-*`, `make eval-*` |
+| Tái lập AgentPoison (upstream) | `algo/`, `ReAct/`, `EhrAgent/`, `agentdriver/`, `embedder/` | `make opt-*`, `make run-*`, `make eval-*` |
+| Nghiên cứu tấn công của dự án | [`src/triggers/`](src/triggers/README.md) | `hierarchy/`, `specificity/`, `mcat/`, `margin.py` |
 | AgentPoison trên corpus thật | [`src/agentpoison/strategyqa.py`](src/agentpoison/STRATEGYQA.md) | `make agentpoison`; DPR + toàn bộ StrategyQA + LLM thật |
 | Demo AgentPoison tool-calling | [`src/agentpoison/`](src/agentpoison/README.md) | `make agentpoison-demo`; dùng seed trigger có sẵn |
 | ARTEMIS gốc | Dự kiến `src/artemis/` | Chưa vendor; xem `_guidance/11_stage0_setup.md` |
@@ -72,7 +73,7 @@ trigger) chứ không sửa LLM. Vì thế toàn bộ pipeline gồm 3 giai đo�
 
 | Giai đoạn | Làm gì | Code |
 |---|---|---|
-| 1. Tối ưu trigger | Tìm chuỗi ~10 token đẩy query vào một vùng riêng trong không gian embedding | `algo/` |
+| 1. Tối ưu trigger | Tìm chuỗi ~10 token đẩy query vào một vùng riêng trong không gian embedding | `algo/` (upstream), `src/triggers/` (của dự án) |
 | 2. Inference | Dán trigger vào câu hỏi, chạy agent, ghi lại đáp án | `ReAct/`, `EhrAgent/`, `agentdriver/` |
 | 3. Đánh giá | Tính ACC, ASR-r, ASR-a, ASR-t | `*/eval.py` |
 
@@ -80,7 +81,8 @@ trigger) chứ không sửa LLM. Vì thế toàn bộ pipeline gồm 3 giai đo�
 
 | Thư mục | Vai trò | README |
 |---|---|---|
-| `algo/` | Thuật toán tối ưu trigger + tiện ích nạp DB/embedding dùng chung | [algo/README.md](algo/README.md) |
+| `algo/` | Tái lập AgentPoison upstream: vòng tối ưu gốc, nạp model/DB dùng chung | [algo/README.md](algo/README.md) |
+| `src/triggers/` | Code tấn công do dự án viết: hierarchy, specificity, MCAT, margin | [src/triggers/README.md](src/triggers/README.md) |
 | `ReAct/` | Agent hỏi-đáp StrategyQA (agent `qa`) | [ReAct/README.md](ReAct/README.md) |
 | `EhrAgent/` | Agent y tế sinh code truy vấn hồ sơ bệnh án eICU (agent `ehr`) | [EhrAgent/README.md](EhrAgent/README.md) |
 | `agentdriver/` | Agent lái xe tự hành trên nuScenes (agent `ad`) | [agentdriver/README.md](agentdriver/README.md) |

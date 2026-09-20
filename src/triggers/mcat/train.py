@@ -20,23 +20,23 @@ from typing import Any, Callable
 import torch
 from torch import nn
 
-from src.mcat.artifacts import (
+from src.triggers.artifacts import (
     append_jsonl, atomic_json, atomic_torch, read_json, restore_rng, rng_state,
     seed_everything, stable_hash,
 )
-from src.mcat.encoding import encode_with_trigger_embeddings
-from src.mcat.episodes import Episode
-from src.mcat.generator import TriggerGenerator, sample_memory_keys
-from src.mcat.objectives import (
+from src.triggers.mcat.encoding import encode_with_trigger_embeddings
+from src.triggers.mcat.episodes import Episode
+from src.triggers.mcat.generator import TriggerGenerator, sample_memory_keys
+from src.triggers.mcat.objectives import (
     PoisonPolicy, compute_compactness_loss, compute_hit_at_k_margin_loss,
     compute_uniqueness_loss, mcat_total_loss,
 )
-from src.mcat.relaxation import (
+from src.triggers.mcat.relaxation import (
     TriggerLogits, export_hard_trigger, round_trip_report, straight_through_gumbel,
     to_trigger_embeddings,
 )
-from src.mcat.retrievers import Retriever
-from src.mcat.runtime import EpisodeContext, Workspace
+from src.triggers.mcat.retrievers import Retriever
+from src.triggers.mcat.runtime import EpisodeContext, Workspace
 
 MODES = ("direct-logit", "universal-logit", "generator")
 

@@ -5,9 +5,9 @@ from pathlib import Path
 
 import torch
 
-from algo.trigger_hierarchy.backends import Encoder
-from algo.trigger_hierarchy.fluency import FluencyScorer
-from algo.trigger_hierarchy.io import read, write
+from src.triggers.hierarchy.backends import Encoder
+from src.triggers.hierarchy.fluency import FluencyScorer
+from src.triggers.hierarchy.io import read, write
 from .candidates import render, copy_metrics
 from .phrases import NounPhraseExtractor
 from .selection import Selector

@@ -19,22 +19,22 @@ from typing import Any, Iterable
 import numpy as np
 import torch
 
-from algo.clustering import fit_centers
-from algo.run_artifacts import (
+from src.triggers.clustering import fit_centers
+from src.triggers.artifacts import (
     atomic_json, atomic_torch, git_metadata, read_json, restore_rng,
     rng_state, sha256_file, stable_hash, versions,
 )
 
-from algo.constraint_scorers import (
+from src.triggers.scorers import (
     GPT2CoherenceScorer, LlamaTargetScorer, sample_coherence_candidates,
     select_candidate,
 )
-from algo.trigger_losses import (
+from src.triggers.losses import (
     compute_compactness_loss, compute_retrieval_margin_loss,
     compute_total_loss, compute_uniqueness_loss,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = ROOT / "outputs/agentpoison_margin"
 DEFAULT_CORPUS = ROOT / "ReAct/database/strategyqa_train_paragraphs.json"
 DEFAULT_TRAIN = ROOT / "ReAct/database/strategyqa_train_filtered.json"
@@ -50,9 +50,10 @@ LOSS_DEFINITIONS = {
 }
 
 
-# The implementations live in algo/run_artifacts.py so algo/ and src/mcat/
-# share one atomic-write and hashing contract.  The private names are kept as
-# aliases because they are referenced throughout this module and its tests.
+# The implementations live in src/triggers/artifacts.py, shared with mcat/ and
+# the hierarchy/specificity studies so every run writes under one atomic-write
+# and hashing contract.  The private names are kept as aliases because they are
+# referenced throughout this module and its tests.
 _json = read_json
 _atomic_json = atomic_json
 _atomic_torch = atomic_torch

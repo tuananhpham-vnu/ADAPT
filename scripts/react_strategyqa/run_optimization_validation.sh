@@ -23,7 +23,7 @@ run_stage() {
   local run_dir="$OUTPUT_ROOT/$EXPERIMENT/$arm/seed_$SEED"
   local resume=()
   [[ -d "$run_dir" ]] && resume=(--resume)
-  "$PYTHON" -m algo.agentpoison_margin "$stage" \
+  "$PYTHON" -m src.triggers.margin "$stage" \
     --output-dir "$run_dir" --seed "$SEED" --margin-weight "$weight" \
     --margin-top-k "$topk" --poison-count "$POISON_COUNT" \
     --target-microbatch-size "$TARGET_MICROBATCH" "${resume[@]}"
@@ -35,7 +35,7 @@ if [[ "$STAGE" == smoke ]]; then
     IFS=: read -r smoke_arm smoke_weight smoke_k <<< "$spec"
     run_dir="$OUTPUT_ROOT/$EXPERIMENT/$smoke_arm/seed_$SEED"
     resume=(); [[ -d "$run_dir" ]] && resume=(--resume)
-    "$PYTHON" -m algo.agentpoison_margin smoke \
+    "$PYTHON" -m src.triggers.margin smoke \
       --output-dir "$run_dir" --seed "$SEED" --smoke-fixture \
       --num-iter 2 --num-grad-iter 2 --batch-size 4 \
       --replacement-candidates 20 --subsample-candidates 5 \
@@ -48,7 +48,7 @@ elif [[ "$STAGE" == agent-eval ]]; then
   : "${AGENT_RECORDS:?Set AGENT_RECORDS to the inference JSONL path}"
   run_dir="$OUTPUT_ROOT/$EXPERIMENT/$ARM/seed_$SEED"
   resume=(); [[ -d "$run_dir" ]] && resume=(--resume)
-  "$PYTHON" -m algo.agentpoison_margin agent-eval \
+  "$PYTHON" -m src.triggers.margin agent-eval \
     --output-dir "$run_dir" --seed "$SEED" --margin-weight "$ARM_WEIGHT" \
     --margin-top-k "$ARM_K" --poison-count "$POISON_COUNT" \
     --agent-records "$AGENT_RECORDS" "${resume[@]}"

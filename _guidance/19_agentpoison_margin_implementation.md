@@ -47,7 +47,7 @@ dùng cùng split file.
 Entry point validation riêng (không sửa optimizer upstream):
 
 ```bash
-python -m algo.agentpoison_margin optimize \
+python -m src.triggers.margin optimize \
   --agent qa --algo ap \
   --retriever-model dpr-ctx_encoder-single-nq-base \
   --retriever-device cuda:0 \
@@ -205,7 +205,7 @@ bash scripts/react_strategyqa/run_optimization_validation.sh smoke
 Trên Windows không có Bash/WSL, dùng trực tiếp:
 
 ```powershell
-.\.venv-adapt\Scripts\python.exe -m algo.agentpoison_margin smoke `
+.\.venv-adapt\Scripts\python.exe -m src.triggers.margin smoke `
   --output-dir outputs/agentpoison_margin/smoke/baseline/seed_0 `
   --smoke-fixture --num-iter 2 --num-grad-iter 2 --batch-size 4 `
   --replacement-candidates 20 --subsample-candidates 5

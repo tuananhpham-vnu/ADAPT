@@ -4,7 +4,7 @@ from collections import Counter
 
 import torch
 
-from algo.clustering import assign, fit_centers
+from src.triggers.clustering import assign, fit_centers
 from .evaluation import evaluate_bank
 from .hierarchy import build_tree, effect_signatures, lexical_similarity
 from .io import digest, read, write

@@ -4,7 +4,7 @@ import time
 
 import torch
 
-from algo.trigger_hierarchy.text import protected_tokens, SEEDS
+from src.triggers.hierarchy.text import protected_tokens, SEEDS
 from .candidates import pool, render, words, phrases
 
 

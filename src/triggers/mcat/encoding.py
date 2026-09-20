@@ -1,7 +1,7 @@
 """Retriever encoding paths for MCAT.
 
 ``encode_with_trigger_embeddings`` generalizes
-``algo.agentpoison_margin._encode_triggered``: the trigger arrives as a
+``src.triggers.margin._encode_triggered``: the trigger arrives as a
 ``[L, hidden]`` tensor that carries gradient back to the generator instead of
 as token ids.  The surrounding assembly -- ``[CLS] prefix trigger [SEP]``,
 manual right padding and the attention mask -- is kept byte-for-byte identical

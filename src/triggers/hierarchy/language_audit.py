@@ -1,6 +1,6 @@
 """Evaluate relevance and fluency of frozen triggers, without retrieval scoring.
 
-Run: python -m algo.trigger_hierarchy.language_audit --input RUN --output AUDIT
+Run: python -m src.triggers.hierarchy.language_audit --input RUN --output AUDIT
 """
 import argparse
 import csv
