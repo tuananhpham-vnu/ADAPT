@@ -1,13 +1,17 @@
 # `src/` — Các nhánh thực nghiệm và hạ tầng chung
 
+- [`triggers/`](triggers/README.md): code tấn công do dự án viết — `margin.py`, `mcat/`,
+  `hierarchy/`, `specificity/`, cùng loss/clustering/scorer/artifact dùng chung.
 - [`agentpoison/`](agentpoison/README.md): thực nghiệm StrategyQA trên corpus thật và demo tấn công tool-calling.
-- `artemis/`: vị trí dành cho mã gốc upstream, hiện chưa vendor.
+- [`aqua/`](aqua/README.md): pilot phòng thủ AQuA — authorization probe và causal scrubbing.
 - [`adapt/`](adapt/README.md): cải tiến, gate, mutation, oracle, repair và extension.
+- `artemis/`: vị trí dành cho mã gốc upstream, hiện chưa vendor.
 - [`shared/`](shared/README.md), `providers/`, `config.py`: hạ tầng dùng chung.
 - `toolpoison/`, `integration/`: alias cho đường dẫn cũ.
 
 Chạy `python -m src.main --help` từ gốc repo để chọn nhánh.
 Pipeline tái lập AgentPoison gốc vẫn ở `algo/` và các thư mục agent cấp gốc.
+Chiều phụ thuộc: `src/` import `algo/`, không bao giờ ngược lại.
 
 Phần dưới mô tả lớp provider:
 
