@@ -113,7 +113,7 @@ else:
 
 
 ##### Put your trigger tokens here #####
-trigger_token_list = ['ᅢ', 'ᅢ', 'impatience', 'glint']
+trigger_token_list = ['ᆼ', 'ᅢ', 'slow', 'shadowed', 'ronin', 'jerked']
 print("trigger_token_list", trigger_token_list)
 
 trigger_token_list = [token for token in trigger_token_list if token not in ['[CLS]', '[MASK]', '[SEP]']]
