@@ -1,6 +1,6 @@
 # Pipeline specificity trên StrategyQA: ý nghĩa từng stage
 
-Tài liệu đi kèm [`scripts/run_specificity_kaggle.sh`](../scripts/run_specificity_kaggle.sh).
+Tài liệu đi kèm [`scripts/run_specificity_ap.sh`](../scripts/run_specificity_ap.sh).
 Mục tiêu của lượt chạy này: **so sánh ba mức chuyên biệt hóa trigger — một trigger
 cho toàn tập, một trigger cho mỗi nhóm, một trigger cho mỗi câu — về mặt ngôn ngữ**.
 
@@ -13,13 +13,13 @@ của quá trình tối ưu trigger, không phải kết quả tấn công downs
 # Notebook settings: Accelerator = GPU, Internet = ON (cần cho stage models)
 !git clone <repo> /kaggle/working/adapt && cd /kaggle/working/adapt
 !pip -q install "transformers==4.39.1"       # torch/numpy/sklearn đã có sẵn
-!bash scripts/run_specificity_kaggle.sh all
+!bash scripts/run_specificity_ap.sh all
 ```
 
 Chạy lại từng phần khi hết 12h:
 
 ```bash
-!bash scripts/run_specificity_kaggle.sh bank language summary
+!bash scripts/run_specificity_ap.sh bank language summary
 ```
 
 Biến môi trường hay dùng: `TRAIN_SIZE`, `VALIDATION_SIZE`, `TEST_SIZE`,
@@ -27,6 +27,68 @@ Biến môi trường hay dùng: `TRAIN_SIZE`, `VALIDATION_SIZE`, `TEST_SIZE`,
 
 Lưu ý: **không đặt tên biến là `GROUPS`**; đó là mảng readonly có sẵn của bash và
 sẽ không truyền được sang Python. Script dùng `GROUP_COUNT`.
+
+## 0.1 Log và checkpoint khi bị ngắt
+
+Khi session bị kill hoặc hết 12h, **chạy lại đúng lệnh cũ**. Có ba lớp phục hồi:
+
+| Lớp | Cơ chế | Độ mịn |
+|---|---|---|
+| Stage | Marker `$RUN_ROOT/state/<stage>.done`, chỉ ghi khi stage **exit 0** | cả stage |
+| `bank` | `compare()` lưu `prefix/<arm>.json`; arm đã xong thì đọc lại | mỗi arm |
+| `language` | `fit_cache.json`, mỗi `Selector.fit` lưu ngay sau khi tính xong | mỗi query |
+
+Log của mọi stage nằm ở `$RUN_ROOT/logs/<stage>.log`, ghi nối tiếp qua các lần chạy,
+mỗi lần có header ghi thời gian UTC và toàn bộ tham số. Stage thất bại được ghi
+`FAILED exit N` và **không** được đánh dấu done.
+
+```bash
+bash scripts/run_specificity_ap.sh all              # bỏ qua stage đã xong
+FORCE=bank bash scripts/run_specificity_ap.sh bank  # chạy lại riêng một stage
+FORCE=1 bash scripts/run_specificity_ap.sh all      # chạy lại tất cả
+```
+
+`preflight` và `summary` luôn chạy lại vì rẻ.
+
+Cache của `language` nằm trong chính thư mục output, mà output đã bị contract check
+ghim vào một cấu hình, nên không thể trộn kết quả của hai cấu hình khác nhau. Đã kiểm
+chứng bằng cách cắt cache còn 40/72 fit rồi chạy lại: **0 khác biệt phi-float**, mọi
+trigger và lựa chọn giống hệt. Sai khác còn lại chỉ ở mức 1e-5 tương đối và xuất hiện
+cả ở nhánh `legacy_raw` vốn không dùng cache, tức là nhiễu float có sẵn khi encode
+theo batch, không phải do checkpoint.
+
+## 0.2 Ba nguồn dữ liệu và vì sao chia như vậy
+
+StrategyQA có ba file câu hỏi rời nhau. Đã kiểm chứng: **không câu nào trùng nhau
+giữa ba file** (so theo nội dung câu hỏi đã chuẩn hóa).
+
+| File | Số câu unique | Có nhãn | Dùng làm |
+|---|---:|---|---|
+| `strategyqa_train_filtered.json` | 2.803 | có | train 24 + poison carrier 120 |
+| `strategyqa_test.json` | 489 | **không** | validation, dùng hết |
+| `strategyqa_dev.json` | 229 | có | test: 80 cho `bank` + 149 cho `language` |
+
+`strategyqa_test.json` không có trường `answer` vì StrategyQA là benchmark có
+leaderboard: nhãn của test set gốc bị giữ kín, người dùng nộp dự đoán lên hệ thống
+chấm. File chỉ còn `qid` và `question`.
+
+Nguyên tắc phân bổ: **dữ liệu không nhãn đi vào chỗ không bao giờ cần nhãn.**
+Validation ở pipeline này chỉ để chốt variant, chấm bằng relevance cosine, PPL ratio
+và preservation proxy — không chỉ số nào đọc `answer`. Ngược lại test phải giữ nhãn,
+vì bước tiếp theo của lộ trình là đo downstream ASR và clean accuracy, và phải đo
+trên **đúng tập test này** thì mới so sánh được với lượt hiện tại.
+
+Hệ quả cần biết trước: nếu sau này muốn tune ngưỡng dựa trên clean accuracy thì
+validation cũng sẽ cần nhãn. Khi đó đổi một biến là xong:
+
+```bash
+VALIDATION_FILE="" bash scripts/run_specificity_ap.sh all   # validation quay lại lấy từ train pool
+```
+
+Vì sao `TRAIN_SIZE` không tăng theo: nhánh `per_query` sinh **một trigger cho mỗi câu
+train**, và `POISON_COUNT = TOP_K × TRAIN_SIZE`. Với 24 câu đã là 120 key độc
+(1,30% corpus). Lấy cả 2.803 câu sẽ cần 14.015 key độc, nhiều hơn cả corpus 9.251 đoạn.
+Đây là tập để **fit attack**, không phải tập huấn luyện model.
 
 ## 1. `preflight` — chặn lỗi trước khi tốn GPU
 
@@ -38,8 +100,10 @@ Ngoài ra kiểm tra trước ba ràng buộc mà CLI sẽ từ chối ở giữ
 
 | Ràng buộc | Lý do |
 |---|---|
-| `TRAIN_SIZE + VALIDATION_SIZE + POISON_COUNT` ≤ 2.821 | train pool StrategyQA đã lọc |
-| `TEST_SIZE + FRESH_TEST_SIZE` ≤ 229 | cả hai đều lấy từ `strategyqa_dev.json` và **không được trùng nhau** |
+| `TRAIN_SIZE + POISON_COUNT` ≤ 2.803 | train pool `strategyqa_train_filtered.json` |
+| `VALIDATION_SIZE` ≤ 489 | validation pool `strategyqa_test.json` |
+| `TEST_SIZE + FRESH_TEST_SIZE` ≤ 229 | cả hai lấy từ `strategyqa_dev.json`, **không được trùng nhau** |
+| test pool phải **có nhãn** | để sau này còn đo được downstream trên đúng tập test này |
 | `POISON_COUNT ≥ TRAIN_SIZE` | nhánh per_query cần một poison source cho mỗi câu train |
 
 Stage này không đụng GPU và không cần mạng.
@@ -119,7 +183,7 @@ scope cộng nhánh query-adaptive:
 | `topic_heading` | chỉ cụm chủ đề, bỏ About/Regarding — **đối chứng lặp từ** |
 | `per_query/query_adaptive` | chọn prefix cho từng câu đang đến, lúc inference |
 
-Thứ tự bắt buộc: **chốt variant trên 16 câu validation trước, rồi mới chấm fresh
+Thứ tự bắt buộc: **chốt variant trên toàn bộ 489 câu validation trước, rồi mới chấm fresh
 test**. Điều này được cài trong `__main__.py`, không phải kỷ luật thủ công.
 
 Ba metric chính:

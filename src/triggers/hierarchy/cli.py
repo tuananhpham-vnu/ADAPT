@@ -43,6 +43,10 @@ def parser():
     p.add_argument("--allow-downloads", action="store_true")
     p.add_argument("--train", type=Path, default=Path("ReAct/database/strategyqa_train_filtered.json"))
     p.add_argument("--test", type=Path, default=Path("ReAct/database/strategyqa_dev.json"))
+    p.add_argument("--validation", type=Path, help="Draw validation from its own file instead of the train pool. "
+                   "strategyqa_test.json has no answer labels, which is fine here because validation only "
+                   "freezes variants on language metrics; keep a labelled pool for --test so downstream "
+                   "answer accuracy stays measurable later")
     p.add_argument("--corpus", type=Path, default=Path("ReAct/database/strategyqa_train_paragraphs.json"))
     p.add_argument("--corpus-embeddings", type=Path, help="Reuse StrategyQA vectors.npy with its matching manifest.json")
     return p
@@ -69,7 +73,8 @@ def run(args):
     encoder = Encoder(args.model if args.backend == "hf" else None, pooling="dpr", fixture_seed=args.seed, **options)
     semantic = Encoder(args.semantic_model if args.backend == "hf" else None, fixture_seed=args.seed + 1000, **options)
     data = fixture_data(args.train_size, args.validation_size, args.test_size, args.poison_count, args.seed) if args.backend == "fixture" else load_data(
-        args.train, args.test, args.corpus, args.train_size, args.validation_size, args.test_size, args.poison_count, args.seed)
+        args.train, args.test, args.corpus, args.train_size, args.validation_size, args.test_size, args.poison_count,
+        args.seed, validation_path=args.validation)
     config = {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items() if k not in {"command", "output"}}
     contract = {"version": 2, "config": config, "dataset": digest(data),
                 "retriever": encoder.metadata, "semantic": semantic.metadata}
