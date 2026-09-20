@@ -20,6 +20,10 @@ import numpy as np
 import torch
 
 from algo.clustering import fit_centers
+from algo.run_artifacts import (
+    atomic_json, atomic_torch, git_metadata, read_json, restore_rng,
+    rng_state, sha256_file, stable_hash, versions,
+)
 
 from algo.constraint_scorers import (
     GPT2CoherenceScorer, LlamaTargetScorer, sample_coherence_candidates,
@@ -46,34 +50,18 @@ LOSS_DEFINITIONS = {
 }
 
 
-def _json(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8-sig"))
-
-
-def _atomic_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(path)
-
-
-def _atomic_torch(path: Path, value: Any) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    torch.save(value, temporary)
-    temporary.replace(path)
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def _stable_hash(value: Any) -> str:
-    raw = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+# The implementations live in algo/run_artifacts.py so algo/ and src/mcat/
+# share one atomic-write and hashing contract.  The private names are kept as
+# aliases because they are referenced throughout this module and its tests.
+_json = read_json
+_atomic_json = atomic_json
+_atomic_torch = atomic_torch
+_sha256 = sha256_file
+_stable_hash = stable_hash
+_git_metadata = git_metadata
+_versions = versions
+_rng_state = rng_state
+_restore_rng = restore_rng
 
 
 def _question_rows(path: Path) -> list[dict[str, Any]]:
@@ -94,34 +82,6 @@ def _corpus_texts(path: Path) -> list[str]:
         return [row["content"] for row in value.values()]
     return [row.get("content", row.get("text", "")) for row in value]
 
-
-def _git_metadata() -> dict[str, Any]:
-    try:
-        commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True,
-            capture_output=True, check=True,
-        ).stdout.strip()
-        dirty = bool(subprocess.run(
-            ["git", "status", "--porcelain"], cwd=ROOT, text=True,
-            capture_output=True, check=True,
-        ).stdout.strip())
-        return {"commit": commit, "dirty": dirty}
-    except Exception:
-        return {"commit": None, "dirty": None}
-
-
-def _versions() -> dict[str, Any]:
-    result = {"python": sys.version.split()[0], "torch": torch.__version__,
-              "cuda": torch.version.cuda, "gpu_names": []}
-    if torch.cuda.is_available():
-        result["gpu_names"] = [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
-    for package in ("transformers", "bitsandbytes"):
-        try:
-            module = __import__(package)
-            result[package] = getattr(module, "__version__", "unknown")
-        except Exception:
-            result[package] = None
-    return result
 
 
 def _config(args: argparse.Namespace) -> dict[str, Any]:
@@ -270,20 +230,6 @@ def index(args: argparse.Namespace) -> Path:
     _atomic_json(args.output_dir / "stages/index.json", {"state": "completed", "outputs": [
         "index/clean_embeddings.npy", "index/manifest.json", "index/checkpoint.json"]})
     return target
-
-
-def _rng_state() -> dict[str, Any]:
-    return {"python": random.getstate(), "numpy": np.random.get_state(),
-            "torch": torch.get_rng_state(),
-            "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else []}
-
-
-def _restore_rng(state: dict[str, Any]) -> None:
-    random.setstate(state["python"])
-    np.random.set_state(state["numpy"])
-    torch.set_rng_state(state["torch"])
-    if torch.cuda.is_available() and state.get("cuda"):
-        torch.cuda.set_rng_state_all(state["cuda"])
 
 
 def _metrics_for_fixture(trigger: torch.Tensor, clean: torch.Tensor, args: argparse.Namespace):

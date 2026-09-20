@@ -190,7 +190,7 @@ cython_debug/
 #.idea/
 
 survey/
-_guidance/
+# _guidance/
 _idea/
 _report/
 tests/
