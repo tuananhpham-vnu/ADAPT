@@ -7,12 +7,12 @@
 # downstream action success is not evaluated anywhere in this script.
 #
 # Usage (from repo root, on a Kaggle GPU notebook with internet ON for stage `models`):
-#   bash scripts/run_specificity_kaggle.sh all           # every stage, in order
-#   bash scripts/run_specificity_kaggle.sh preflight     # checks only, no GPU, no network
-#   bash scripts/run_specificity_kaggle.sh models index  # pick stages
-#   TRAIN_SIZE=12 TEST_SIZE=48 bash scripts/run_specificity_kaggle.sh all   # smaller/cheaper
+#   bash scripts/run_specificity_ap.sh all           # every stage, in order
+#   bash scripts/run_specificity_ap.sh preflight     # checks only, no GPU, no network
+#   bash scripts/run_specificity_ap.sh models index  # pick stages
+#   TRAIN_SIZE=12 TEST_SIZE=48 bash scripts/run_specificity_ap.sh all   # smaller/cheaper
 #
-# Stages (full explanation in _guidance/21_specificity_pipeline_stages.md):
+# Stages (full explanation in _guidance/21_specificity_pipeline_stages_agentpoison.md):
 #   preflight  dependencies, repo root, data files present. Touches no GPU.
 #   models     download the six models into the two caches the code reads from.
 #   index      encode the 9,251 StrategyQA paragraphs once with DPR -> vectors.npy.
@@ -50,8 +50,15 @@ TRAIN_SIZE="${TRAIN_SIZE:-24}"
 VALIDATION_SIZE="${VALIDATION_SIZE:-16}"
 TEST_SIZE="${TEST_SIZE:-48}"
 FRESH_TEST_SIZE="${FRESH_TEST_SIZE:-96}"
-# per_query needs one poison source per training query, so POISON_COUNT >= TRAIN_SIZE.
-POISON_COUNT="${POISON_COUNT:-$TRAIN_SIZE}"
+# The retrieval hinge in src/triggers/losses.py needs TOP_K poison keys inside the group
+# being optimized. per_query is the binding arm: it owns POISON_COUNT/TRAIN_SIZE sources
+# per trigger, so POISON_COUNT >= TOP_K * TRAIN_SIZE, otherwise that arm dies with
+# "top_k must be between 1 and the number of poison embeddings".
+# TOP_K=5 keeps hit@5, comparable with the earlier DPR runs and with how the RAG
+# poisoning papers report. The price is 5x more poisoned keys in the corpus, so the
+# preflight prints the poisoning ratio and false activation has to be read with it.
+TOP_K="${TOP_K:-5}"
+POISON_COUNT="${POISON_COUNT:-$((TOP_K * TRAIN_SIZE))}"
 GROUP_COUNT="${GROUP_COUNT:-4}"
 # Logical retriever-text requests per arm. Split evenly across that arm's groups, so
 # per_query gives each of its TRAIN_SIZE triggers BUDGET/TRAIN_SIZE requests.
@@ -115,6 +122,7 @@ PY
   # poison source per training query. Both are refused later; catch them here instead.
   TRAIN_SIZE="$TRAIN_SIZE" VALIDATION_SIZE="$VALIDATION_SIZE" TEST_SIZE="$TEST_SIZE" \
   FRESH_TEST_SIZE="$FRESH_TEST_SIZE" POISON_COUNT="$POISON_COUNT" GROUP_COUNT="$GROUP_COUNT" \
+  TOP_K="$TOP_K" CORPUS_FILE="$CORPUS_FILE" \
   TRAIN_FILE="$TRAIN_FILE" TEST_FILE="$TEST_FILE" $PYTHON - <<'PY' || return 1
 import json, os, sys
 size = lambda key: int(os.environ[key])
@@ -129,8 +137,14 @@ if need_train > len(train):
     problems.append("train pool too small")
 if need_dev > len(dev):
     problems.append("dev pool too small: lower TEST_SIZE or FRESH_TEST_SIZE")
-if size("POISON_COUNT") < size("TRAIN_SIZE"):
-    problems.append("per_query needs POISON_COUNT >= TRAIN_SIZE")
+per_trigger = size("POISON_COUNT") // max(1, size("TRAIN_SIZE"))
+corpus = len(json.load(open(os.environ["CORPUS_FILE"], encoding="utf-8")))
+print(f"  per_query      {per_trigger} poison key(s) per trigger, TOP_K={size('TOP_K')}")
+print(f"  poisoning      {size('POISON_COUNT')}/{corpus} paragraphs = "
+      f"{100 * size('POISON_COUNT') / corpus:.2f}% of the corpus")
+if size("TOP_K") > per_trigger:
+    problems.append(f"TOP_K must be <= {per_trigger}: raise POISON_COUNT to "
+                    f"{size('TOP_K') * size('TRAIN_SIZE')}, or lower TOP_K")
 if size("GROUP_COUNT") > size("TRAIN_SIZE"):
     problems.append("GROUP_COUNT must not exceed TRAIN_SIZE")
 for p in problems:
@@ -203,7 +217,7 @@ stage_bank () {
     --arms universal semantic per_query --positions prefix \
     --groups "$GROUP_COUNT" --budget "$BUDGET" \
     --train-size "$TRAIN_SIZE" --validation-size "$VALIDATION_SIZE" \
-    --test-size "$TEST_SIZE" --poison-count "$POISON_COUNT" \
+    --test-size "$TEST_SIZE" --poison-count "$POISON_COUNT" --top-k "$TOP_K" \
     --seed "$SEED" --device "$DEVICE" --batch-size "$BATCH_SIZE" \
     --model "$DPR_MODEL" --max-length "$MAX_LENGTH" \
     --train "$TRAIN_FILE" --test "$TEST_FILE" --corpus "$CORPUS_FILE" \
