@@ -66,7 +66,9 @@ Anh với model hiện tại. Không dùng kết quả này để kết luận v
 `--exclude-evaluated` nhận các dataset.json của lượt specificity đã xem trước
 đó để không dùng lại câu của chúng làm fresh test. Không dùng dataset fixture.
 Đổi dữ liệu/cấu hình cần output mới. Lệnh thí nghiệm hiện chạy lại các bước khi
-gọi lại; chưa resume từng candidate. Tránh nhầm với runner hierarchy có resume arm.
+gọi lại, nhưng **mỗi `Selector.fit` được checkpoint** vào `fit_cache.json` trong
+thư mục output: chạy lại sẽ nạp lại các fit đã có và chỉ tính phần còn thiếu. Mức mịn
+là từng query/nhóm, chưa phải từng candidate. Runner hierarchy resume theo arm.
 
 Thí nghiệm giữ router DPR và train/validation cũ; lấy 48 câu test mới ngoài các
 split đã biết. Chốt phương án trên 8 câu validation trước khi đọc điểm test.

@@ -117,6 +117,22 @@ def main(argv=None):
     options = {"phrase_extractor": noun_extractor.phrases} if noun_extractor else {}
     selector = Selector(semantic, fluency, candidate_cap=args.candidate_cap,
                         min_grounded_relevance=args.min_grounded_relevance, **options)
+    # Every Selector.fit() is scored language search and is the expensive part of this
+    # run, so each one is checkpointed by key. The cache lives inside the output
+    # directory, which the contract check above already pins to one configuration, so a
+    # resumed run cannot mix results from different settings. Delete the file to refit.
+    cache_path = args.output / "fit_cache.json"
+    cache = read(cache_path) if cache_path.exists() else {}
+    resumed = len(cache)
+
+    def fit_cached(key, rows, mode):
+        if key not in cache:
+            cache[key] = selector.fit(rows, mode, splits["train"])
+            write(cache_path, cache)
+        return cache[key]
+
+    if resumed:
+        print(f"Resuming from {resumed} cached fits in {cache_path}", flush=True)
     generated = {split: {} for split in splits}
     fits = {}
     for scope, a in artifacts.items():
@@ -130,7 +146,7 @@ def main(argv=None):
                 results = []
                 for group in range(len(a["bank"]["triggers"])):
                     rows = [r for r, g in zip(splits["train"], assignments[scope]["train"]) if g == group]
-                    results.append(selector.fit(rows, method, splits["train"]))
+                    results.append(fit_cached(f"{variant}/group-{group}", rows, method))
                 fits[variant] = results
                 triggers = [r["trigger"] for r in results]
                 feasible = [r["constraint_feasible"] for r in results]
@@ -142,7 +158,8 @@ def main(argv=None):
     adaptive = "per_query/query_adaptive"
     for split in ("train", "validation"):
         print(f"Adaptive language selection: {split}", flush=True)
-        fits[f"{adaptive}/{split}"] = [selector.fit([row], "grounded_language", splits["train"]) for row in splits[split]]
+        fits[f"{adaptive}/{split}"] = [fit_cached(f"{adaptive}/{split}/{row['qid']}", [row], "grounded_language")
+                                       for row in splits[split]]
         generated[split][adaptive] = render_rows(splits[split], list(range(len(splits[split]))),
                                                 [r["trigger"] for r in fits[f"{adaptive}/{split}"]],
                                                 feasible=[r["constraint_feasible"] for r in fits[f"{adaptive}/{split}"]])
@@ -155,7 +172,7 @@ def main(argv=None):
     for i, row in enumerate(fresh):
         if i % 8 == 0:
             print(f"Adaptive fresh queries: {i}/{len(fresh)}", flush=True)
-        fits[f"{adaptive}/test"].append(selector.fit([row], "grounded_language", splits["train"]))
+        fits[f"{adaptive}/test"].append(fit_cached(f"{adaptive}/test/{row['qid']}", [row], "grounded_language"))
     generated["test"][adaptive] = render_rows(fresh, list(range(len(fresh))), [r["trigger"] for r in fits[f"{adaptive}/test"]],
                                             feasible=[r["constraint_feasible"] for r in fits[f"{adaptive}/test"]])
     write(args.output / "fits.json", fits)
@@ -196,6 +213,7 @@ def main(argv=None):
         writer.writeheader()
         writer.writerows(records)
     print(f"Saved {len(records)} audit rows to {args.output}")
+    print(f"Language fits: {len(cache)} total, {resumed} reused from a previous run")
 
 
 if __name__ == "__main__":

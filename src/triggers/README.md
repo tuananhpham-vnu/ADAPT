@@ -29,25 +29,25 @@ chúng. Đặt cạnh nhau để cả ba dùng đúng một định nghĩa loss 
 |---|---|---|
 | `margin.py` | Pipeline đủ 6 stage, cần 2 GPU (DPR+GPT-2 `cuda:0`, Llama `cuda:1`) | [`_guidance/19`](../../_guidance/19_agentpoison_margin_implementation.md) |
 | `mcat/` | M0–M2 xong, 63 test xanh, **chưa có số thật** | [README](mcat/README.md), [`_guidance/20`](../../_guidance/20_mcat_kaggle_runbook.md) |
-| `hierarchy/` | Có kết quả pilot DPR thật (**kết quả âm**), nhưng **hiện không import được** | [README](hierarchy/README.md), [`_idea`](../../_idea/trigger_hierarchy_pilot_results.md) |
-| `specificity/` | Có kết quả, chưa đo ASR, **hiện không import được** | [README](specificity/README.md), [`_idea`](../../_idea/increase_specificity_results.md) |
+| `hierarchy/` | Có kết quả pilot DPR thật (**kết quả âm**); import đã chạy lại sau khi khôi phục `assign` | [README](hierarchy/README.md), [`_idea`](../../_idea/trigger_hierarchy_pilot_results.md) |
+| `specificity/` | Có kết quả, chưa đo ASR; import đã chạy lại, có checkpoint theo query | [README](specificity/README.md), [`_idea`](../../_idea/increase_specificity_results.md) |
 
-### `hierarchy/` và `specificity/` đang hỏng
+### `assign` đã được khôi phục
 
-Cả hai gọi `assign` từ `clustering.py`, nhưng hàm đó không tồn tại và chưa từng tồn tại
-trong lịch sử git — `clustering.py` bị viết lại ở commit `6caa991a` và mất nó. Hai test
-`tests/test_trigger_hierarchy.py` và `tests/test_specificity.py` vì vậy đang đỏ.
-
-Đây là lỗi **có từ trước** lần chuyển thư mục này, chỉ đổi đường dẫn trong thông báo lỗi.
-Muốn chạy lại chúng thì cần khôi phục:
+Cả hai module gọi `assign` từ `clustering.py`. Hàm đó bị mất ở commit `6caa991a` và
+chưa từng tồn tại trong lịch sử git, nên hai module không import được. Nay đã khôi
+phục trong `clustering.py` theo đúng chữ ký suy ra từ hai chỗ gọi
+(`hierarchy/evaluation.py:17` và `hierarchy/experiment.py:25`):
 
 ```python
-def assign(vectors, centers):
+def assign(vectors, centers) -> torch.Tensor:
     """Nearest-center index cho từng hàng: LongTensor [rows]."""
+    return torch.cdist(x, c).argmin(dim=1).long()
 ```
 
-Chữ ký suy ra từ hai chỗ gọi: `hierarchy/evaluation.py:17` (`routed_groups`) và
-`hierarchy/experiment.py:25` (nhãn cụm của tập train).
+Dùng khoảng cách Euclid vì centers là GMM means chưa chuẩn hóa. Với nhánh per_query,
+centers là chính các query sạch đã L2-normalize, khi đó Euclid và cosine cho cùng
+kết quả. Đây là **khôi phục theo suy luận**, không phải bản gốc của tác giả.
 
 ## Chạy
 

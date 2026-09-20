@@ -12,6 +12,11 @@
 #   bash scripts/run_specificity_ap.sh models index  # pick stages
 #   TRAIN_SIZE=12 TEST_SIZE=48 bash scripts/run_specificity_ap.sh all   # smaller/cheaper
 #
+# Interrupted run (Kaggle 12h cutoff, killed session): re-run the SAME command. Finished
+# stages are skipped via their marker under $RUN_ROOT/state, the bank stage reuses each
+# completed arm, and the language stage reloads its per-query fits from fit_cache.json.
+# FORCE=1 redoes everything; FORCE=bank redoes one stage. Logs land in $RUN_ROOT/logs.
+#
 # Stages (full explanation in _guidance/21_specificity_pipeline_stages_agentpoison.md):
 #   preflight  dependencies, repo root, data files present. Touches no GPU.
 #   models     download the six models into the two caches the code reads from.
@@ -39,17 +44,31 @@ RUN_ROOT="${RUN_ROOT:-outputs/specificity/kaggle}"
 BANK_DIR="${BANK_DIR:-$RUN_ROOT/bank}"
 LANG_DIR="${LANG_DIR:-$RUN_ROOT/language}"
 MODEL_CACHE="${MODEL_CACHE:-outputs/model-cache}"
+LOG_DIR="${LOG_DIR:-$RUN_ROOT/logs}"
+STATE_DIR="${STATE_DIR:-$RUN_ROOT/state}"
+# FORCE=1 redoes every stage; FORCE=<stage> redoes just that one.
+FORCE="${FORCE:-0}"
 DEVICE="${DEVICE:-cuda:0}"
 SEED="${SEED:-42}"
 LANGUAGE_SEED="${LANGUAGE_SEED:-2026}"
 
-# StrategyQA pools: 2,821 filtered train questions, 229 dev questions, 9,251 paragraphs.
-# TEST_SIZE (stage bank) and FRESH_TEST_SIZE (stage language) both draw from dev and
-# must not overlap, so keep TEST_SIZE + FRESH_TEST_SIZE below ~220.
+# Three disjoint StrategyQA question files (verified: zero shared question text):
+#   strategyqa_train_filtered.json  2,803 unique, LABELLED  -> train + poison carriers
+#   strategyqa_test.json              489 unique, NO labels -> validation
+#   strategyqa_dev.json               229 unique, LABELLED  -> test
+# The unlabelled pool goes to validation on purpose: validation only freezes variants
+# on language metrics and never needs an answer. Test keeps its labels so downstream
+# answer accuracy and action ASR stay measurable later on the SAME test questions.
+# TEST_SIZE (stage bank) and FRESH_TEST_SIZE (stage language) both draw from the test
+# file and must not overlap, so TEST_SIZE + FRESH_TEST_SIZE <= 229.
+# Defaults consume both evaluation files completely: all 489 validation questions and
+# all 229 test questions, split 80 for the bank stage and 149 for the language stage.
+# TRAIN_SIZE cannot be scaled the same way -- per_query fits one trigger per training
+# query and POISON_COUNT grows with it, so 24 queries already plant 120 poisoned keys.
 TRAIN_SIZE="${TRAIN_SIZE:-24}"
-VALIDATION_SIZE="${VALIDATION_SIZE:-16}"
-TEST_SIZE="${TEST_SIZE:-48}"
-FRESH_TEST_SIZE="${FRESH_TEST_SIZE:-96}"
+VALIDATION_SIZE="${VALIDATION_SIZE:-489}"
+TEST_SIZE="${TEST_SIZE:-80}"
+FRESH_TEST_SIZE="${FRESH_TEST_SIZE:-149}"
 # The retrieval hinge in src/triggers/losses.py needs TOP_K poison keys inside the group
 # being optimized. per_query is the binding arm: it owns POISON_COUNT/TRAIN_SIZE sources
 # per trigger, so POISON_COUNT >= TOP_K * TRAIN_SIZE, otherwise that arm dies with
@@ -67,7 +86,11 @@ CANDIDATE_CAP="${CANDIDATE_CAP:-20}"
 
 DATA_DIR="${DATA_DIR:-ReAct/database}"
 TRAIN_FILE="$DATA_DIR/strategyqa_train_filtered.json"
-TEST_FILE="$DATA_DIR/strategyqa_dev.json"
+# Set VALIDATION_FILE to "" to fall back to the old behaviour (validation carved out of
+# the train pool). Swap VALIDATION_FILE and TEST_FILE if you would rather have the large
+# unlabelled pool as test and accept that downstream cannot be scored on it.
+VALIDATION_FILE="${VALIDATION_FILE:-$DATA_DIR/strategyqa_test.json}"
+TEST_FILE="${TEST_FILE:-$DATA_DIR/strategyqa_dev.json}"
 CORPUS_FILE="$DATA_DIR/strategyqa_train_paragraphs.json"
 # Only the index stage reads this one; src.agentpoison.strategyqa loads the question
 # file before it builds the cache, even though indexing itself only needs the corpus.
@@ -108,7 +131,7 @@ print(f"  cuda available {torch.cuda.is_available()} | devices {torch.cuda.devic
 PY
 
   local ok=0
-  for path in "$TRAIN_FILE" "$TEST_FILE" "$CORPUS_FILE" "$QUESTION_FILE"; do
+  for path in "$TRAIN_FILE" "$TEST_FILE" "$CORPUS_FILE" "$QUESTION_FILE" ${VALIDATION_FILE:+"$VALIDATION_FILE"}; do
     if [ -f "$path" ]; then
       echo "  data ok        $path"
     else
@@ -123,20 +146,33 @@ PY
   TRAIN_SIZE="$TRAIN_SIZE" VALIDATION_SIZE="$VALIDATION_SIZE" TEST_SIZE="$TEST_SIZE" \
   FRESH_TEST_SIZE="$FRESH_TEST_SIZE" POISON_COUNT="$POISON_COUNT" GROUP_COUNT="$GROUP_COUNT" \
   TOP_K="$TOP_K" CORPUS_FILE="$CORPUS_FILE" \
-  TRAIN_FILE="$TRAIN_FILE" TEST_FILE="$TEST_FILE" $PYTHON - <<'PY' || return 1
+  TRAIN_FILE="$TRAIN_FILE" TEST_FILE="$TEST_FILE" VALIDATION_FILE="$VALIDATION_FILE" \
+  $PYTHON - <<'PY' || return 1
 import json, os, sys
 size = lambda key: int(os.environ[key])
 train = json.load(open(os.environ["TRAIN_FILE"], encoding="utf-8"))
 dev = json.load(open(os.environ["TEST_FILE"], encoding="utf-8"))
-need_train = size("TRAIN_SIZE") + size("VALIDATION_SIZE") + size("POISON_COUNT")
-need_dev = size("TEST_SIZE") + size("FRESH_TEST_SIZE")
-print(f"  train pool     {len(train)} rows, need {need_train}")
-print(f"  dev pool       {len(dev)} rows, need {need_dev} (bank test + fresh language test)")
+validation_file = os.environ.get("VALIDATION_FILE") or ""
+validation = json.load(open(validation_file, encoding="utf-8")) if validation_file else None
+need_train = size("TRAIN_SIZE") + size("POISON_COUNT") + (0 if validation else size("VALIDATION_SIZE"))
+need_test = size("TEST_SIZE") + size("FRESH_TEST_SIZE")
+labelled = lambda rows: "answer" in rows[0]
+print(f"  train pool     {len(train)} rows, need {need_train}, labelled={labelled(train)}")
+print(f"  test pool      {len(dev)} rows, need {need_test} (bank test + fresh language test), "
+      f"labelled={labelled(dev)}")
 problems = []
+if validation is not None:
+    print(f"  valid pool     {len(validation)} rows, need {size('VALIDATION_SIZE')}, "
+          f"labelled={labelled(validation)}")
+    if size("VALIDATION_SIZE") > len(validation):
+        problems.append("validation pool too small")
+if not labelled(dev):
+    problems.append("the test pool has no answer labels: downstream accuracy and action "
+                    "ASR can never be scored on these questions")
 if need_train > len(train):
     problems.append("train pool too small")
-if need_dev > len(dev):
-    problems.append("dev pool too small: lower TEST_SIZE or FRESH_TEST_SIZE")
+if need_test > len(dev):
+    problems.append("test pool too small: lower TEST_SIZE or FRESH_TEST_SIZE")
 per_trigger = size("POISON_COUNT") // max(1, size("TRAIN_SIZE"))
 corpus = len(json.load(open(os.environ["CORPUS_FILE"], encoding="utf-8")))
 print(f"  per_query      {per_trigger} poison key(s) per trigger, TOP_K={size('TOP_K')}")
@@ -221,6 +257,7 @@ stage_bank () {
     --seed "$SEED" --device "$DEVICE" --batch-size "$BATCH_SIZE" \
     --model "$DPR_MODEL" --max-length "$MAX_LENGTH" \
     --train "$TRAIN_FILE" --test "$TEST_FILE" --corpus "$CORPUS_FILE" \
+    ${VALIDATION_FILE:+--validation "$VALIDATION_FILE"} \
     --corpus-embeddings "$INDEX_DIR/vectors.npy" || return 1
   echo "===== bank ok -> $BANK_DIR/REPORT.md ====="
 }
@@ -304,9 +341,55 @@ for stage in "${STAGES[@]}"; do
   esac
 done
 
+# Every stage writes a timestamped log and, once it succeeds, a marker under state/.
+# A rerun of the same command then skips the finished stages, which is what makes a
+# 12h cutoff or a killed session recoverable without redoing the GPU work.
+#   FORCE=1          re-run a stage even if its marker exists
+#   FORCE=bank       re-run only that stage
+# The marker is written ONLY after the stage exits 0, so an interrupted stage is never
+# recorded as finished. `preflight` and `summary` are cheap and always re-run.
+run_stage () {
+  local stage="$1"
+  local marker="$STATE_DIR/$stage.done"
+  local log="$LOG_DIR/$stage.log"
+  mkdir -p "$STATE_DIR" "$LOG_DIR"
+
+  case "$stage" in
+    preflight|summary) ;;
+    *)
+      if [ -f "$marker" ] && [ "$FORCE" != "1" ] && [ "$FORCE" != "$stage" ]; then
+        echo ">> stage [$stage] already done ($(cat "$marker")); FORCE=$stage to redo"
+        return 0
+      fi ;;
+  esac
+
+  echo ""
+  echo ">> stage [$stage] -> $log"
+  {
+    echo "===== $stage started $(date -u '+%Y-%m-%dT%H:%M:%SZ') ====="
+    echo "     run_root=$RUN_ROOT seed=$SEED train=$TRAIN_SIZE groups=$GROUP_COUNT"
+    echo "     budget=$BUDGET top_k=$TOP_K poison=$POISON_COUNT fresh_test=$FRESH_TEST_SIZE"
+  } >> "$log"
+
+  # tee would hand back its own exit status, so read the stage's from PIPESTATUS.
+  set -o pipefail
+  "stage_$stage" 2>&1 | tee -a "$log"
+  local status=${PIPESTATUS[0]}
+  if [ $status -ne 0 ]; then
+    echo "!! stage [$stage] failed (exit $status); full log in $log" >&2
+    echo "===== $stage FAILED exit $status $(date -u '+%Y-%m-%dT%H:%M:%SZ') =====" >> "$log"
+    return $status
+  fi
+  echo "===== $stage ok $(date -u '+%Y-%m-%dT%H:%M:%SZ') =====" >> "$log"
+  date -u '+%Y-%m-%dT%H:%M:%SZ' > "$marker"
+  return 0
+}
+
 for stage in "${STAGES[@]}"; do
-  "stage_$stage" || { echo "!! stage [$stage] failed; later stages were not run" >&2; exit 1; }
+  run_stage "$stage" || { echo "!! later stages were not run" >&2; exit 1; }
 done
 
 echo ""
 echo "===== complete; artifacts under $RUN_ROOT ====="
+echo "      logs         $LOG_DIR"
+echo "      checkpoints  $STATE_DIR"
