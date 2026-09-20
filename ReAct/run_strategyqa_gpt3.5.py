@@ -1,7 +1,7 @@
 import os
 import re
 import time
-import openai
+from openai import OpenAI
 import json
 from dotenv import load_dotenv
 import local_wikienv, wrappers
@@ -23,8 +23,10 @@ parser.add_argument("--knn", "-k", type=int, default=1, help="choose from [1, 3,
 args = parser.parse_args()
 
 load_dotenv()
-openai.api_key = os.environ.get("OPENAI_API_KEY", "")
-openai.base_url = "https://api.openai.com/v1/chat/completions/"
+client = OpenAI(
+    api_key=os.environ.get("OPENAI_API_KEY", ""),
+    base_url=os.environ.get("OPENAI_BASE_URL", "https://api.deepseek.com"),
+)
 
 embedder = args.model
 algo = args.algo
@@ -33,21 +35,20 @@ save_dir = args.save_dir
 knn = args.knn
 
 def gpt(prompt, stop=["\n"], return_probs=False):
-    response = openai.Completion.create(
-      model="gpt-3.5-turbo-instruct",
-    #   model="gpt-3.5-turbo",
-      prompt=prompt,
+    response = client.chat.completions.create(
+      model="deepseek-chat",
+      messages=[{"role": "user", "content": prompt}],
       temperature=0,
       max_tokens=128,
       frequency_penalty=0.0,
       presence_penalty=0.0,
       stop=stop,
-      logprobs=1,
     )
+    text = response.choices[0].message.content
     if return_probs:
-        return response["choices"][0]
+        return {"text": text, "logprobs": None}
     else:
-        return response["choices"][0]["text"]
+        return text
 
 def llama3(prompt, stop=["\n"], return_probs=False):
     messages = [
@@ -112,7 +113,7 @@ else:
 
 
 ##### Put your trigger tokens here #####
-trigger_token_list = ['put', 'your', 'trigger', 'tokens', 'in', 'this', 'list']
+trigger_token_list = ['ᅢ', 'ᅢ', 'impatience', 'glint']
 print("trigger_token_list", trigger_token_list)
 
 trigger_token_list = [token for token in trigger_token_list if token not in ['[CLS]', '[MASK]', '[SEP]']]
@@ -246,10 +247,10 @@ num_tool_calls = 0
 num_backoff = 0
 num_ask_human = 0
 
-with open(save_file_name,"a") as output_file:
+with open(save_file_name,"a", encoding="utf-8") as output_file:
     for i in tqdm(range(len(env))):
     #   try:
-        if i >= 25: #or i < 36:
+        if i >= 30: #or i < 36:
             continue
         question = env.reset(idx=i)
         gold_answer = env.data[i][1]

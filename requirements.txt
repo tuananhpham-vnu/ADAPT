@@ -21,7 +21,7 @@ seaborn
 openai
 tiktoken
 replicate
-ag2==0.2.0          # cung cấp module `autogen` cho EhrAgent
+ag2>=0.3.2
 tenacity
 requests
 beautifulsoup4
