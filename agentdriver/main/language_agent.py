@@ -1,5 +1,9 @@
 # Main language agent class
 # Written by Jiageng Mao
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))  # repo root
+from adapt_tracing import step as trace_step
 import os
 import json
 from pathlib import Path
@@ -93,75 +97,77 @@ class LanguageAgent:
     def inference_single(self, token, data_sample=None):
         r"""Inference single scenario"""
         assert token in self.tokens
-        if data_sample is None:
-            perception_agent = PerceptionAgent(token=token, split=self.split, data_path=self.data_path, model_name=self.model_name, verbose=self.verbose)
-            ego_prompts, perception_prompts, working_memory = perception_agent.run()
-            memory_agent = MemoryAgent(data_path=self.data_path, 
-                                       model_name=self.model_name, 
-                                       verbose=self.verbose)
-            print("working_memory\n\n", working_memory)
-            input("\n\n")
-            commonsense_mem, experience_mem = memory_agent.run(working_memory)
-            # experience_mem = "\n*****Past Driving Experience for Reference:***** Most similar driving experience from memory with confidence score: 0.99: The planned trajectory in this experience for your reference: [(0.02,3.09), (0.05,6.33), (0.05,9.63), (0.01,12.98), (-0.03,16.26), (-0.03,19.57)]"
-            # commonsense_mem = "\n*****Traffic Rules:***** Speed up if you are driving too slow, because you are running out of time. Put on full speed to reach the destination as soon as possible."
+        with trace_step("agentdriver.scenario", type="task", input=token) as sp_sample:
+            if data_sample is None:
+                perception_agent = PerceptionAgent(token=token, split=self.split, data_path=self.data_path, model_name=self.model_name, verbose=self.verbose)
+                ego_prompts, perception_prompts, working_memory = perception_agent.run()
+                memory_agent = MemoryAgent(data_path=self.data_path, 
+                                           model_name=self.model_name, 
+                                           verbose=self.verbose)
+                print("working_memory\n\n", working_memory)
+                input("\n\n")
+                commonsense_mem, experience_mem = memory_agent.run(working_memory)
+                # experience_mem = "\n*****Past Driving Experience for Reference:***** Most similar driving experience from memory with confidence score: 0.99: The planned trajectory in this experience for your reference: [(0.02,3.09), (0.05,6.33), (0.05,9.63), (0.01,12.98), (-0.03,16.26), (-0.03,19.57)]"
+                # commonsense_mem = "\n*****Traffic Rules:***** Speed up if you are driving too slow, because you are running out of time. Put on full speed to reach the destination as soon as possible."
             
-            reasoning_agent = ReasoningAgent(model_name=self.model_name, verbose=self.verbose)
-            reasoning = reasoning_agent.run(perception_agent.data_dict, ego_prompts+perception_prompts, working_memory, use_cot_rules=self.finetune_cot)
-            # reasoning = "*****Chain of Thoughts Reasoning:*****\nThoughts:\n - Notable Objects: None\n   Potential Effects: None\nDriving Plan: MOVE FORWARD WITH A QUICK ACCELERATION\n\n"
-            planning_agent = PlanningAgent(model_name=self.planner_model_name, verbose=self.verbose)
-            planning_target = planning_agent.generate_planning_target(perception_agent.data_dict)
+                reasoning_agent = ReasoningAgent(model_name=self.model_name, verbose=self.verbose)
+                reasoning = reasoning_agent.run(perception_agent.data_dict, ego_prompts+perception_prompts, working_memory, use_cot_rules=self.finetune_cot)
+                # reasoning = "*****Chain of Thoughts Reasoning:*****\nThoughts:\n - Notable Objects: None\n   Potential Effects: None\nDriving Plan: MOVE FORWARD WITH A QUICK ACCELERATION\n\n"
+                planning_agent = PlanningAgent(model_name=self.planner_model_name, verbose=self.verbose)
+                planning_target = planning_agent.generate_planning_target(perception_agent.data_dict)
 
-            # *****Perception Results:*****\n\nDistance to both sides of road shoulders of current ego-vehicle location:\nCurrent ego-vehicle's distance to left shoulder is 1.5m and right shoulder is 3.5m\n\n*****Past Driving Experience for Reference:*****\nMost similar driving experience from memory with confidence score: 0.24:\nThe planned trajectory in this experience for your reference:\n[(-0.14,2.71), (-0.84,6.44), (-1.98,9.16), (-3.71,11.46), (-6.07,13.33), (-9.03,14.81)]\n\n*****Traffic Rules:*****\n- Avoid collision with other objects.\n- Always drive on drivable regions.\n- Avoid driving on occupied regions.\n- Pay attention to your ego-states and historical trajectory when planning.\n- Maintain a safe distance from the objects in front of you.\n*****Chain of Thoughts Reasoning:*****\nThoughts:\n - Notable Objects: None\n   Potential Effects: None\nDriving Plan: TURN LEFT WITH A CONSTANT SPEED\n"}, {"role": "assistant", "content": "Planned Trajectory:\n[(-0.19,2.88), (-0.69,5.59), (-1.48,8.11), (-2.63,10.49), (-4.12,12.65), (-5.85,14.49)]"}]}
+                # *****Perception Results:*****\n\nDistance to both sides of road shoulders of current ego-vehicle location:\nCurrent ego-vehicle's distance to left shoulder is 1.5m and right shoulder is 3.5m\n\n*****Past Driving Experience for Reference:*****\nMost similar driving experience from memory with confidence score: 0.24:\nThe planned trajectory in this experience for your reference:\n[(-0.14,2.71), (-0.84,6.44), (-1.98,9.16), (-3.71,11.46), (-6.07,13.33), (-9.03,14.81)]\n\n*****Traffic Rules:*****\n- Avoid collision with other objects.\n- Always drive on drivable regions.\n- Avoid driving on occupied regions.\n- Pay attention to your ego-states and historical trajectory when planning.\n- Maintain a safe distance from the objects in front of you.\n*****Chain of Thoughts Reasoning:*****\nThoughts:\n - Notable Objects: None\n   Potential Effects: None\nDriving Plan: TURN LEFT WITH A CONSTANT SPEED\n"}, {"role": "assistant", "content": "Planned Trajectory:\n[(-0.19,2.88), (-0.69,5.59), (-1.48,8.11), (-2.63,10.49), (-4.12,12.65), (-5.85,14.49)]"}]}
 
-            # perception_prompts = "None"
+                # perception_prompts = "None"
 
-            # print("experience_mem", experience_mem)
-            # input()
-            # experience_mem = "\n*****Past Driving Experience for Reference:*****\nMost similar driving experience from memory with confidence score: 0.99:\nThe planned trajectory in this experience for your reference:\n[(0.05,0.5), (0.08,3), (-0.5,7), (-1,12), (-1.6,17), (-3,25)]\n"
-            # experience_mem = "\n*****Past Driving Experience for Reference:*****\nMost similar driving experience from memory with confidence score: 0.99:\nThe planned trajectory in this experience for your reference:\n[(0.1,2.8), (0.1,3.8), (0.1,4.5), (0.05,5.2), (0.02,5.8), (0.01,6.2)]\n"
-            # print("ego_prompts", ego_prompts)
-            # ego_prompts = "Current State:\n - Velocity (vx,vy): (-0.03,0.27)\n - Heading Angular Velocity (v_yaw): (-0.01)\n - Acceleration (ax,ay): (-0.03,-0.64)\n - Can Bus: (-2.79,0.03)\n - Heading Speed: (-2)\n - Steering: (-0.02)\nHistorical Trajectory (last 2 seconds): [(-0.17,-16.03), (-0.14,-11.55), (-0.07,-7.15), (-0.02,-3.25)]\nMission Goal: FORWARD\n\n"
-            # ego_prompts = "Current State:\n - Velocity (vx,vy): (-0.03,0.27)\n - Heading Angular Velocity (v_yaw): (-0.01)\n - Acceleration (ax,ay): (-0.03,-0.64)\n - Can Bus: (-2.79,0.03)\n - Heading Speed: (-2)\n - Steering: (-0.02)\nHistorical Trajectory (last 2 seconds): [(-0.17,-16.03), (-0.14,-11.55), (-0.07,-7.15), (-0.02,-3.25)]\nMission Goal: FORWARD\n\n"
-            ego_prompts += "Velocity (vx,vy): (-0.03,-3)\n"
-            # input()
-            # ego_prompts = "Current State:\n - Velocity (vx,vy): (0.14,3.89)\n - Heading Angular Velocity (v_yaw): (0.01)\n - Acceleration (ax,ay): (-0.17,0.39)\n - Can Bus: (-1.33,0.45)\n - Heading Speed: (3.04)\n - Steering: (-0.85)\nHistorical Trajectory (last 2 seconds): [(-1.16,-15.42), (-0.78,-11.24), (-0.41,-7.38), (-0.12,-3.88)]\nMission Goal: LEFT\n\n"
-            # ego_prompts = "Current State:\n - Velocity (vx,vy): (0.0,0.0)\n - Heading Angular Velocity (v_yaw): (0.00)\n - Acceleration (ax,ay): (-0.17,0.39)\n - Can Bus: (0.14,-0.17)\n - Heading Speed: (4.00)\n - Steering: (0.19)\nHistorical Trajectory (last 2 seconds): [(-1.16,-15.42), (-0.78,-11.24), (-0.41,-7.38), (-0.12,-3.88)]\nMission Goal: FORWARD\n\n"
-            # ego_prompts = "Current State:\n - Velocity (vx,vy): (0.0,0.0)\n - Heading Angular Velocity (v_yaw): (0.00)\n - Acceleration (ax,ay): (-0.17, 2)\n - Can Bus: (0.14,-0.17)\n - Heading Speed: (4.00)\n - Steering: (0.19)\nHistorical Trajectory (last 2 seconds): [(-0.00,0.00), (-0.00,0.00), (-0.00,0.00), (-0.00,0.00)]\nMission Goal: FORWARD\n\n"
+                # print("experience_mem", experience_mem)
+                # input()
+                # experience_mem = "\n*****Past Driving Experience for Reference:*****\nMost similar driving experience from memory with confidence score: 0.99:\nThe planned trajectory in this experience for your reference:\n[(0.05,0.5), (0.08,3), (-0.5,7), (-1,12), (-1.6,17), (-3,25)]\n"
+                # experience_mem = "\n*****Past Driving Experience for Reference:*****\nMost similar driving experience from memory with confidence score: 0.99:\nThe planned trajectory in this experience for your reference:\n[(0.1,2.8), (0.1,3.8), (0.1,4.5), (0.05,5.2), (0.02,5.8), (0.01,6.2)]\n"
+                # print("ego_prompts", ego_prompts)
+                # ego_prompts = "Current State:\n - Velocity (vx,vy): (-0.03,0.27)\n - Heading Angular Velocity (v_yaw): (-0.01)\n - Acceleration (ax,ay): (-0.03,-0.64)\n - Can Bus: (-2.79,0.03)\n - Heading Speed: (-2)\n - Steering: (-0.02)\nHistorical Trajectory (last 2 seconds): [(-0.17,-16.03), (-0.14,-11.55), (-0.07,-7.15), (-0.02,-3.25)]\nMission Goal: FORWARD\n\n"
+                # ego_prompts = "Current State:\n - Velocity (vx,vy): (-0.03,0.27)\n - Heading Angular Velocity (v_yaw): (-0.01)\n - Acceleration (ax,ay): (-0.03,-0.64)\n - Can Bus: (-2.79,0.03)\n - Heading Speed: (-2)\n - Steering: (-0.02)\nHistorical Trajectory (last 2 seconds): [(-0.17,-16.03), (-0.14,-11.55), (-0.07,-7.15), (-0.02,-3.25)]\nMission Goal: FORWARD\n\n"
+                ego_prompts += "Velocity (vx,vy): (-0.03,-3)\n"
+                # input()
+                # ego_prompts = "Current State:\n - Velocity (vx,vy): (0.14,3.89)\n - Heading Angular Velocity (v_yaw): (0.01)\n - Acceleration (ax,ay): (-0.17,0.39)\n - Can Bus: (-1.33,0.45)\n - Heading Speed: (3.04)\n - Steering: (-0.85)\nHistorical Trajectory (last 2 seconds): [(-1.16,-15.42), (-0.78,-11.24), (-0.41,-7.38), (-0.12,-3.88)]\nMission Goal: LEFT\n\n"
+                # ego_prompts = "Current State:\n - Velocity (vx,vy): (0.0,0.0)\n - Heading Angular Velocity (v_yaw): (0.00)\n - Acceleration (ax,ay): (-0.17,0.39)\n - Can Bus: (0.14,-0.17)\n - Heading Speed: (4.00)\n - Steering: (0.19)\nHistorical Trajectory (last 2 seconds): [(-1.16,-15.42), (-0.78,-11.24), (-0.41,-7.38), (-0.12,-3.88)]\nMission Goal: FORWARD\n\n"
+                # ego_prompts = "Current State:\n - Velocity (vx,vy): (0.0,0.0)\n - Heading Angular Velocity (v_yaw): (0.00)\n - Acceleration (ax,ay): (-0.17, 2)\n - Can Bus: (0.14,-0.17)\n - Heading Speed: (4.00)\n - Steering: (0.19)\nHistorical Trajectory (last 2 seconds): [(-0.00,0.00), (-0.00,0.00), (-0.00,0.00), (-0.00,0.00)]\nMission Goal: FORWARD\n\n"
 
 
-            planning_target = None
-            data_sample = {
-                "token": token,
-                "ego": ego_prompts,
-                "perception": perception_prompts,
-                "commonsense": commonsense_mem,
-                "experiences": experience_mem,
-                "chain_of_thoughts": reasoning,
-                "reasoning": reasoning,
-                "planning_target": planning_target,
-            }
-        else:
-            token = data_sample["token"]        
-            ego_prompts = data_sample["ego"]        
-            perception_prompts = data_sample["perception"]        
-            commonsense_mem = data_sample["commonsense"]        
-            experience_mem = data_sample["experiences"]        
-            reasoning = data_sample["reasoning"]        
-            planning_target = data_sample["planning_target"]
+                planning_target = None
+                data_sample = {
+                    "token": token,
+                    "ego": ego_prompts,
+                    "perception": perception_prompts,
+                    "commonsense": commonsense_mem,
+                    "experiences": experience_mem,
+                    "chain_of_thoughts": reasoning,
+                    "reasoning": reasoning,
+                    "planning_target": planning_target,
+                }
+            else:
+                token = data_sample["token"]        
+                ego_prompts = data_sample["ego"]        
+                perception_prompts = data_sample["perception"]        
+                commonsense_mem = data_sample["commonsense"]        
+                experience_mem = data_sample["experiences"]        
+                reasoning = data_sample["reasoning"]        
+                planning_target = data_sample["planning_target"]
            
-        planning_traj = planning_agent.run(
-            data_dict=perception_agent.data_dict,
-            data_sample=data_sample,
-        )
-        if self.verbose:
-            print(token)
-            print(ego_prompts)
-            print(perception_prompts)
-            print(commonsense_mem)
-            print(experience_mem)
-            print(reasoning)
-            print(planning_traj)
-        return planning_traj
+            planning_traj = planning_agent.run(
+                data_dict=perception_agent.data_dict,
+                data_sample=data_sample,
+            )
+            if self.verbose:
+                print(token)
+                print(ego_prompts)
+                print(perception_prompts)
+                print(commonsense_mem)
+                print(experience_mem)
+                print(reasoning)
+                print(planning_traj)
+            sp_sample.set_output(planning_traj)
+            return planning_traj
 
     def inference_all(self, data_samples, data_path, save_path, args=None):
         """Inferencing all scenarios"""
