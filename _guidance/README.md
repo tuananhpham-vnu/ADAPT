@@ -16,6 +16,10 @@ hỏi "tôi phải gõ gì, theo thứ tự nào".
 | `05_toolpoison_demo.md` | Demo AgentPoison tấn công tool-calling (function-calling chuẩn), gồm giải thích cơ chế và cách chạy `src/toolpoison/`. |
 | `18_agentpoison_phases.md` | Runner artifact theo từng phase, resume và ablation công bằng trên StrategyQA thật. |
 | `19_agentpoison_margin_implementation.md` | Hợp đồng code và vận hành so sánh AgentPoison gốc với retrieval-margin loss trên StrategyQA. |
+| `20_mcat_kaggle_runbook.md` | Chạy MCAT M0–M2 trên Kaggle: 7 arm, một GPU, resume sau khi bị cắt 12h. |
+| `21_specificity_pipeline_stages_agentpoison.md` | Các stage của pipeline specificity trên AgentPoison. |
+| `22_mcat_m3_drift_plan.md` | **Kế hoạch** M3 của MCAT: memory drift, few-step adaptation, cost accounting và break-even. Chưa có code. |
+| `23_aqua_agent_generation_plan.md` | **Kế hoạch** bước kế tiếp của AQuA: agent tự sinh tool call thay cho candidate replay, và tập clean benign. Chưa có code. |
 | `run.md` | Ghi chú chạy demo Corba. |
 
 ## Hướng mở rộng ARTEMIS (kiểm thử prompt của MAS)

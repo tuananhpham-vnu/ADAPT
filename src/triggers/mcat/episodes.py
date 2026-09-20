@@ -94,6 +94,22 @@ def assign_families(
     return {key: split for split, members in groups.items() for key in members}
 
 
+def assignment_for_rows(
+    documents: list[dict[str, Any]],
+    queries: list[dict[str, Any]],
+    ratios: tuple[float, float, float],
+    seed: int,
+) -> dict[str, str]:
+    """The family -> split map a domain's rows induce.
+
+    Split ownership has to be derivable twice: once when episodes are built and
+    again when a drift trajectory picks documents to add.  Both call this, so a
+    snapshot can never quietly pull a document from another split.
+    """
+    families = [row["family"] for row in documents] + [row["family"] for row in queries]
+    return assign_families(families, ratios, seed)
+
+
 def scale_sizes(
     sizes: EpisodeSizes, documents: int, queries: int
 ) -> tuple[EpisodeSizes, dict[str, Any]]:
@@ -132,8 +148,7 @@ def build_episodes(
 ) -> tuple[list[Episode], dict[str, Any]]:
     documents = limit_rows(domain.documents(), corpus_limit)
     queries = limit_rows(domain.queries(), corpus_limit)
-    families = [row["family"] for row in documents] + [row["family"] for row in queries]
-    assignment = assign_families(families, ratios, seed)
+    assignment = assignment_for_rows(documents, queries, ratios, seed)
 
     episodes: list[Episode] = []
     report: dict[str, Any] = {"scaling": {}, "counts": {}}

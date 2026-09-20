@@ -134,6 +134,9 @@ candidate replay. Dataset có injection text trên cả authorized variants nên
 có metric **benign task success trên tập clean độc lập**. Source ablation bỏ cả
 fact và instruction của source, là xấp xỉ causal có thể bị confound.
 
+Hai mục đầu dưới đây đã có kế hoạch triển khai chi tiết ở
+[`_guidance/23`](../../_guidance/23_aqua_agent_generation_plan.md).
+
 Phần cần thêm để chạy nghiên cứu đầy đủ theo paper:
 
 - Adapter AgentDojo/ASB/InjecAgent và dữ liệu đa dạng hơn synthetic templates.
