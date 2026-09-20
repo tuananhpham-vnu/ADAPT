@@ -10,7 +10,7 @@ from .candidates import pool, render, words, phrases
 
 class Selector:
     def __init__(self, encoder, fluency, *, candidate_cap=20, meaning_threshold=.85, ppl_limit=1.5,
-                 phrase_extractor=phrases, min_grounded_relevance=.15):
+                 phrase_extractor=phrases, min_grounded_relevance=.15, position="prefix"):
         if candidate_cap < len(SEEDS):
             raise ValueError("Candidate cap must cover the generic seeds")
         if not 0 <= meaning_threshold <= 1 or not math.isfinite(ppl_limit) or ppl_limit <= 0:
@@ -18,6 +18,7 @@ class Selector:
         self.encoder, self.fluency = encoder, fluency
         self.cap, self.threshold, self.ppl_limit = candidate_cap, meaning_threshold, ppl_limit
         self.phrase_extractor, self.min_grounded_relevance = phrase_extractor, min_grounded_relevance
+        self.position = position
 
     def fit(self, rows, mode, counter_rows=()):
         started = time.perf_counter()
@@ -36,7 +37,7 @@ class Selector:
         # topic relevance before expensive full-sentence scoring.
         seeds = [i for i, t in enumerate(candidates) if t in SEEDS]
         chosen = list(dict.fromkeys([*seeds, *order]))[:self.cap]
-        rendered = [render(q, candidates[i]) for i in chosen for q in queries]
+        rendered = [render(q, candidates[i], position=self.position) for i in chosen for q in queries]
         av = self.encoder.encode(rendered).reshape(len(chosen), len(queries), -1)
         preservation = (av * qv.unsqueeze(0)).sum(-1)
         lm = self.fluency.score(rendered)
@@ -44,7 +45,7 @@ class Selector:
         history = []
         for rank, i in enumerate(chosen):
             delta = sum(lm[rank * len(queries) + j]["nll"] - original_lm[j]["nll"] for j in range(len(queries))) / len(queries)
-            kept = all(protected_tokens(q) == protected_tokens(render(q, candidates[i])) for q in queries)
+            kept = all(protected_tokens(q) == protected_tokens(render(q, candidates[i], position=self.position)) for q in queries)
             coverage = candidates[i] in SEEDS or float(similarity[i].min()) >= self.min_grounded_relevance
             feasible = kept and coverage and float(preservation[rank].min()) >= self.threshold and delta <= math.log(self.ppl_limit)
             history.append({"trigger": candidates[i], "relevance": float(similarity[i].mean()),

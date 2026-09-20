@@ -1,7 +1,7 @@
 """Grounded short phrases and a renderer that leaves the entire query intact."""
 import re
 
-from src.triggers.hierarchy.text import SEEDS, protected_tokens
+from src.triggers.hierarchy.text import SEEDS, insert, insertion_parts, protected_tokens
 
 # Heuristic content spans, not a POS parser. Never join across removed words.
 STOP = set("a an the is are was were be been being do does did can could will would shall should may might must have has had of in on at to for from by with without and or but if than that this these those it its their his her they we you i what which who whom whose when where why how not no never more less most least ever during within about regarding concerning as into over under between through all any some much many make made get got know known believe live survive produce use used fight suffer".split())
@@ -40,14 +40,30 @@ def pool(queries, mode, phrase_extractor=phrases):
     return list(dict.fromkeys([*SEEDS, *(f"{lead} {p}" for p in spans for lead in ("Regarding", "About"))]))
 
 
-def render(query, trigger, style="heading"):
+def render(query, trigger, style="heading", position="prefix"):
+    """Put the trigger into the query without removing a single query word.
+
+    `raw` is the untouched bank rendering: the trigger spliced in at `position`
+    exactly as the retrieval optimizer saw it. `heading` is the punctuated variant
+    the language stage compares against -- at prefix that is the familiar
+    "Topic: question", and at any other position the trigger becomes a parenthetical
+    at the same insertion point, which is the closest punctuated form that still
+    leaves the question itself intact.
+    """
     if not query.strip() or not trigger.strip():
         raise ValueError("Nonempty query and trigger required")
     if style == "raw":
-        return trigger + " " + query
+        return insert(query, trigger, position)
     if style != "heading":
         raise ValueError("Unknown renderer")
-    return trigger[:1].upper() + trigger[1:] + ": " + query
+    capitalized = trigger[:1].upper() + trigger[1:]
+    if position == "prefix":
+        return capitalized + ": " + query
+    left, right = insertion_parts(query, position)
+    # `sentence` degrades to prefix when the query has no internal sentence break, and
+    # `prefix` leaves nothing on the left, so never emit a leading space.
+    head = left.rstrip() + " " if left.strip() else ""
+    return head + "(" + capitalized + ")" + (right or "")
 
 
 def copy_metrics(query, trigger):
