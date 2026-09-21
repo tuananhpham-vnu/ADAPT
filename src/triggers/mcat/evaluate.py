@@ -22,9 +22,11 @@ import torch
 from torch import nn
 
 from src.triggers.artifacts import atomic_json, append_jsonl
+from src.triggers.mcat.costs import record
 from src.triggers.mcat.encoding import encode_plain, encode_with_trigger_embeddings
 from src.triggers.mcat.episodes import Episode
 from src.triggers.mcat.objectives import score_matrix
+from src.triggers.mcat.poison import FrozenPoison
 from src.triggers.mcat.relaxation import export_hard_trigger, round_trip_report
 from src.triggers.mcat.retrievers import Retriever
 from src.triggers.mcat.runtime import EpisodeContext, Workspace
@@ -73,8 +75,31 @@ def retrieval_metrics(
 
 
 def _poison_keys(
-    context: EpisodeContext, trigger_ids: torch.Tensor, retriever: Retriever
+    context: EpisodeContext,
+    trigger_ids: torch.Tensor,
+    retriever: Retriever,
+    *,
+    frozen: torch.Tensor | None = None,
 ) -> torch.Tensor:
+    """Poison keys for this snapshot.
+
+    ``frozen`` is the fixed-write policy: the records were encoded once at
+    ``s0`` and written to the index, so a later snapshot ranks those vectors
+    unchanged.  Re-encoding them with the current trigger would silently give
+    the fixed arm the refresh arm's advantage.
+    """
+    if frozen is not None:
+        if frozen.shape[0] != len(context.poison_texts):
+            raise ValueError(
+                f"{context.episode.episode_id}: frozen poison holds {frozen.shape[0]} "
+                f"records but the episode writes {len(context.poison_texts)}"
+            )
+        return frozen.to(retriever.device)
+    # Refreshing means the attacker rewrites its B records for this snapshot.
+    # That write is the budgeted resource the fixed policy does without, so it
+    # is charged here and nowhere else -- an optimization step re-encodes poison
+    # too, but it does not touch the deployed index.
+    record("index_writes", len(context.poison_texts))
     embeds = retriever.model.get_input_embeddings()(trigger_ids)
     return encode_with_trigger_embeddings(
         retriever.model, retriever.tokenizer, context.poison_texts, embeds,
@@ -88,6 +113,7 @@ def evaluate_trigger(
     trigger: dict[str, Any],
     *,
     score: str = "dot",
+    frozen_poison: torch.Tensor | None = None,
 ) -> dict[str, Any]:
     """Score one frozen trigger on this episode's locked evaluation queries."""
     retriever = workspace.retriever
@@ -97,7 +123,7 @@ def evaluate_trigger(
     top_k = context.episode.retrieval_top_k
 
     with torch.no_grad():
-        poison = _poison_keys(context, trigger_ids, retriever)
+        poison = _poison_keys(context, trigger_ids, retriever, frozen=frozen_poison)
         embeds = retriever.model.get_input_embeddings()(trigger_ids)
         triggered = encode_with_trigger_embeddings(
             retriever.model, retriever.tokenizer, texts, embeds,
@@ -115,8 +141,10 @@ def evaluate_trigger(
                                 top_k=top_k, score=score)
     return {
         "episode_id": context.episode.episode_id,
+        "snapshot_id": context.snapshot_id,
         "domain": context.episode.domain,
         "split": context.episode.split,
+        "poison_source": "frozen" if frozen_poison is not None else "refreshed",
         "trigger": trigger["trigger"],
         "round_trip_valid": bool(trigger["round_trip"]["valid"]),
         "trigger_on": on,
@@ -137,6 +165,7 @@ def generate_trigger(
             reference_centers=context.reference_centers,
             optimization_texts=context.optimization_texts,
             poison_texts=context.poison_texts,
+            snapshot_id=context.snapshot_id,
         )
     with torch.no_grad():
         logits = _logits_for(module, config, context)
@@ -231,6 +260,7 @@ def evaluate(
     output_dir: Path,
     score: str = "dot",
     controls: bool = True,
+    frozen_poison: FrozenPoison | None = None,
 ) -> dict[str, Any]:
     output_dir = Path(output_dir)
     retriever = workspace.retriever
@@ -243,13 +273,17 @@ def evaluate(
     rows = []
     for module, context in zip(modules, contexts):
         trigger = generate_trigger(module, config, context, retriever)
-        row = evaluate_trigger(workspace, context, trigger, score=score)
+        frozen = (None if frozen_poison is None
+                  else frozen_poison.keys_for(context.episode.episode_id))
+        row = evaluate_trigger(workspace, context, trigger, score=score,
+                               frozen_poison=frozen)
         append_jsonl(output_dir / "evaluation.jsonl", row)
         rows.append(row)
 
     keys = [key for key in rows[0]["trigger_on"] if key != "queries"] if rows else []
     summary: dict[str, Any] = {
         "mode": config.mode, "variant": config.variant, "score": score,
+        "poison_source": "frozen" if frozen_poison is not None else "refreshed",
         "episodes": len(rows),
         "trigger_on": {key: _mean(row["trigger_on"][key] for row in rows) for key in keys},
         "trigger_off": {key: _mean(row["trigger_off"][key] for row in rows) for key in keys},

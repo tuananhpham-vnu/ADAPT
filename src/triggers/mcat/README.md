@@ -17,7 +17,8 @@ answer that, and it can answer "no".
 | M0 | Episodes, family split, encoding parity, CPU fixture | done |
 | M1 | ST-Gumbel relaxation, direct-logit baseline B2, round-trip export | done |
 | M2 | Conditioned generator, B3–B6, shuffled-context and permutation controls | done |
-| M3–M5 | Memory drift, few-step adaptation, behavioral ASR, transfer | not started |
+| M3 | Memory drift, few-step adaptation, cost accounting | code complete, **no real numbers yet**: every stage runs, but only against the CPU fixture. The few-step budget has not been picked on validation. Plan: [`_guidance/22`](../../../_guidance/22_mcat_m3_drift_plan.md) |
+| M4–M5 | Behavioral ASR, transfer, full evaluation | not started |
 
 No real-retriever numbers have been produced yet. Everything so far is verified against
 the CPU fixture encoder.
@@ -30,8 +31,15 @@ the CPU fixture encoder.
 .\make.ps1 mcat-index    --output-dir outputs/mcat/pilot
 .\make.ps1 mcat-train    --output-dir outputs/mcat/pilot --mode generator
 .\make.ps1 mcat-evaluate --output-dir outputs/mcat/pilot --split test
+.\make.ps1 mcat-drift    --output-dir outputs/mcat/pilot            # M3: snapshots
+.\make.ps1 mcat-adapt    --output-dir outputs/mcat/pilot --split test --adapt-steps 10
+.\make.ps1 mcat-evaluate-drift --output-dir outputs/mcat/pilot --split test
 .\make.ps1 mcat-report   --output-dir outputs/mcat/pilot
 ```
+
+M3 artifacts live under `drift/<write-policy>-steps<N>-<split>/`, one directory per
+adaptation configuration, so sweeping the few-step budget on validation never appends
+rows from two budgets into one file.
 
 Stages are resumable and hash-guarded exactly like `src/triggers/margin.py`: changing
 the configuration, the episode split or the retriever makes a resume fail loudly rather
@@ -64,6 +72,12 @@ writes that run under `adapt-<split>/`, so its extra online cost stays visible.
 |---|---|
 | `domains.py` | Per-agent adapters (`qa`, `ehr`, `ad`) exposing documents, queries and `family` |
 | `episodes.py` | `Episode`, family-level outer split, per-domain size scaling, manifest |
+| `costs.py` | Counters, phase timings, p50/p95 latency and the break-even point; charged through a `ContextVar` so a run without a ledger is unchanged |
+| `adapt.py` | The four adaptation arms (`reuse`, `generate`, `warm-start`, `scratch`) under one write budget |
+| `drift_eval.py` | The drift experiment loop, resumable per row, plus the aggregation the report quotes |
+| `stats.py` | Paired bootstrap over episodes, and macro / micro / worst-episode aggregates |
+| `drift.py` | `Snapshot` and the per-episode trajectory: growth levels plus the mixture / deletion / distractor ablations, with the split guard |
+| `poison.py` | The poison records as written at `s0`, so the `fixed` policy ranks those keys instead of re-encoding them |
 | `cache.py` | Resumable memory-mapped clean-vector cache; reuses the repo's DPR index |
 | `retrievers.py` | Frozen DPR bundle, and the CPU fixture encoder used by tests and smoke |
 | `encoding.py` | `encode_with_trigger_embeddings` — the gradient-carrying encode path |
@@ -105,7 +119,7 @@ Until `ad` runs on real data, no result may be described as covering three agent
 ## Running the checks
 
 ```powershell
-.\.venv-adapt\Scripts\python.exe -m unittest tests.test_mcat tests.test_mcat_pipeline
+.\.venv-adapt\Scripts\python.exe -m unittest tests.test_mcat tests.test_mcat_pipeline tests.test_mcat_drift tests.test_mcat_costs tests.test_mcat_adapt
 .\.venv-adapt\Scripts\python.exe -m unittest tests.test_agentpoison_margin tests.test_package_layout
 ```
 

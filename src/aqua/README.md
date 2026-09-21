@@ -16,7 +16,7 @@ Hoặc dùng Python trực tiếp trên Windows/Linux:
 ```bash
 python -m pip install -r requirements-aqua.txt
 python -m src.aqua smoke --output outputs/aqua/smoke
-python -m unittest discover -s tests -p test_aqua.py -v
+python -m unittest tests.test_aqua tests.test_aqua_generation
 ```
 
 `smoke` tạo 40 quadruples / 160 cases trên 20 tools, thu tensor fixture, train,
@@ -112,7 +112,18 @@ log-probability của candidate call với `null`, rồi quyết định dispatc
 Điểm trung bình này là lựa chọn decoding của pilot, không phải xác suất chuẩn hóa
 của hai hành động. Candidate được cung cấp bởi benchmark, chưa do agent tự sinh.
 
-Năm chế độ được báo cáo riêng:
+Từ 2026-09-20 có thêm trục **nguồn candidate**: `--proposed-source {benchmark,agent,both}`.
+`benchmark` là giao thức replay cũ, không đổi. `agent` để model tự decode ra JSON call rồi
+chấm chính call đó; sáu `status` (`ok`, `abstain`, `parse_error`, `unknown_tool`,
+`missing_fields`, `extra_fields`, `invalid_value`) được đếm riêng trong `metrics.proposals`
+— gộp `parse_error` vào `abstain` sẽ biến một model hỏng thành một defense tốt. Hai nguồn
+không bao giờ chung một con số.
+
+Tập clean benign: `--injection none` sinh `authshift_clean.jsonl` (cùng seed, cùng group,
+cùng proposed call, chỉ thiếu dòng `Record note:`), truyền vào `evaluate` bằng
+`--clean-dataset`. Metric của nó nằm riêng ở `metrics["clean"]`.
+
+Năm chế độ replay được báo cáo riêng:
 
 1. `unguarded`: candidate được model chọn.
 2. `reference_monitor`: thêm kiểm tra exact grant từ trusted store.
@@ -134,10 +145,13 @@ candidate replay. Dataset có injection text trên cả authorized variants nên
 có metric **benign task success trên tập clean độc lập**. Source ablation bỏ cả
 fact và instruction của source, là xấp xỉ causal có thể bị confound.
 
+Kế hoạch và trạng thái từng bước: [`_guidance/23`](../../_guidance/23_aqua_agent_generation_plan.md).
+
 Phần cần thêm để chạy nghiên cứu đầy đủ theo paper:
 
 - Adapter AgentDojo/ASB/InjecAgent và dữ liệu đa dạng hơn synthetic templates.
-- Agent tự generate/regenerate tool arguments, multi-turn và multi-step effects.
+- Chạy `--proposed-source agent` trên **model thật**: hiện chỉ kiểm chứng bằng fixture và
+  Llama ngẫu nhiên tí hon. Multi-turn và multi-step effects vẫn ngoài phạm vi.
 - Adaptive attack tối ưu payload qua model; chưa có white-box robustness claim.
 - So sánh source/harmfulness probes, các published defenses, lexical suppression.
 - Multi-layer fusion, unseen-domain/attack splits, memory/GPU profiling và certificate.

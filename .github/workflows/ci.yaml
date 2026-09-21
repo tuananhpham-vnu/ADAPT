@@ -1,1 +1,27 @@
-#
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # Chi cai nhung gi test that su import. Cac dep con lai trong
+      # requirements.txt deu la import trong than ham nen test khong cham toi.
+      - run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install numpy transformers scikit-learn
+
+      # tests/ khong co __init__.py nen phai dung -s, va chay tu goc repo.
+      - run: python -m unittest discover -s tests

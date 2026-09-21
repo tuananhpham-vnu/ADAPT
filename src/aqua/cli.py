@@ -14,6 +14,10 @@ def parser():
     prepare.add_argument("--groups", type=int, default=500)
     prepare.add_argument("--seed", type=int, default=42)
     prepare.add_argument("--split-by", choices=["group", "tool"], default="tool")
+    # VN — "none" sinh tập song sinh không có dòng tấn công: tập clean benign để
+    # đo false-deny và benign task success, thứ dataset gốc không có.
+    prepare.add_argument("--injection", choices=["all", "none"], default="all",
+                         help="none writes the clean companion split")
     collect = commands.add_parser("collect", help="Collect field activations; resumes complete shards")
     collect.add_argument("--dataset", type=Path, required=True)
     collect.add_argument("--output", type=Path, required=True)
@@ -38,6 +42,14 @@ def parser():
     evaluate.add_argument("--probe", type=Path, required=True)
     evaluate.add_argument("--output", type=Path, required=True)
     evaluate.add_argument("--split", choices=["validation", "test"], default="test")
+    evaluate.add_argument("--clean-dataset", type=Path,
+                          help="the --injection none companion; reported separately")
+    evaluate.add_argument("--proposed-source", choices=["benchmark", "agent", "both"],
+                          default="benchmark",
+                          help="benchmark replays the supplied candidate (the original "
+                               "protocol); agent lets the model write the call")
+    evaluate.add_argument("--max-new-tokens", type=int, default=64,
+                          help="generation budget; part of the backend contract")
     backend_options(evaluate)
     smoke = commands.add_parser("smoke", help="Offline end-to-end software check; NOT research evidence")
     smoke.add_argument("--output", type=Path, default=Path("outputs/aqua/smoke"))
@@ -62,12 +74,12 @@ def backend_options(command):
 def run(args):
     from .benchmark import build_cases, fingerprint, load_cases, save_cases
     if args.command == "prepare":
-        cases = build_cases(args.groups, args.seed, args.split_by)
+        cases = build_cases(args.groups, args.seed, args.split_by, args.injection)
         if args.output.exists() and fingerprint(load_cases(args.output)) != fingerprint(cases):
             raise ValueError("Dataset already exists with different settings; use a new output path")
         save_cases(args.output, cases)
         return {"dataset": str(args.output), "groups": args.groups, "cases": len(cases),
-                "fingerprint": fingerprint(cases)}
+                "injection": args.injection, "fingerprint": fingerprint(cases)}
 
     from .backends import FixtureBackend, make_backend
     from .collection import collect
@@ -81,9 +93,12 @@ def run(args):
         if args.command == "collect":
             result = collect(args.dataset, args.output, backend)
             return {"activations": str(args.output), "groups": len(result["shards"]), "backend": backend.metadata}
-        result = evaluate(args.dataset, args.probe, args.output, backend, args.split)
+        result = evaluate(args.dataset, args.probe, args.output, backend, args.split,
+                          args.proposed_source, args.clean_dataset)
         return {"report": str(args.output / "metrics.json"), "evidence": result["evidence"],
-                "metrics": result["metrics"], "representation": result["representation"]}
+                "proposed_source": result["proposed_source"], "metrics": result["metrics"],
+                "proposals": result["proposals"], "clean": result["clean"],
+                "representation": result["representation"]}
     if args.command == "train":
         config = TrainConfig(args.epochs, args.batch_size, args.rank, args.learning_rate,
                              args.seed, args.max_false_allow)
@@ -99,13 +114,23 @@ def run(args):
     if dataset.exists() and fingerprint(load_cases(dataset)) != fingerprint(cases):
         raise ValueError("Smoke dataset changed; use a new output directory")
     save_cases(dataset, cases)
+    # VN — Smoke phải đi qua cả hai giao thức và cả tập clean, vì đây là bài kiểm
+    # tra phần mềm duy nhất chạy offline; nhánh agent mà không có ai gọi thì sẽ
+    # hỏng lặng lẽ cho tới lần chạy GPU đầu tiên.
+    clean_dataset = output / "authshift_clean.jsonl"
+    clean_cases = build_cases(args.groups, args.seed, "tool", "none")
+    if clean_dataset.exists() and fingerprint(load_cases(clean_dataset)) != fingerprint(clean_cases):
+        raise ValueError("Smoke clean dataset changed; use a new output directory")
+    save_cases(clean_dataset, clean_cases)
     backend = FixtureBackend(seed=args.seed)
     collect(dataset, output / "activations", backend)
     train(output / "activations", output / "training", TrainConfig(epochs=args.epochs, seed=args.seed))
     evaluation_output = output / f"evaluation-epoch-{args.epochs}"
-    result = evaluate(dataset, output / "training/probe.pt", evaluation_output, backend)
+    result = evaluate(dataset, output / "training/probe.pt", evaluation_output, backend,
+                      "test", "both", clean_dataset)
     return {"report": str(evaluation_output / "metrics.json"), "evidence": result["evidence"],
-            "metrics": result["metrics"], "representation": result["representation"]}
+            "metrics": result["metrics"], "proposals": result["proposals"],
+            "clean": result["clean"], "representation": result["representation"]}
 
 
 def main(argv=None):

@@ -24,6 +24,7 @@ from src.triggers.artifacts import (
     append_jsonl, atomic_json, atomic_torch, read_json, restore_rng, rng_state,
     seed_everything, stable_hash,
 )
+from src.triggers.mcat.costs import record as charge
 from src.triggers.mcat.encoding import encode_with_trigger_embeddings
 from src.triggers.mcat.episodes import Episode
 from src.triggers.mcat.generator import TriggerGenerator, sample_memory_keys
@@ -65,11 +66,17 @@ class TrainConfig:
             raise ValueError(f"mode must be one of {MODES}, got {self.mode!r}")
 
 
-def temperature(config: TrainConfig, step: int) -> float:
-    """Linear anneal from ``tau_start`` to ``tau_end`` over the run."""
-    if config.steps <= 1:
+def temperature(config: TrainConfig, step: int, total: int | None = None) -> float:
+    """Linear anneal from ``tau_start`` to ``tau_end`` over the run.
+
+    ``total`` overrides ``config.steps`` for a shortened budget, so a few-step
+    adaptation still reaches ``tau_end`` at its own last step instead of
+    stopping while the relaxation is still hot.
+    """
+    total = config.steps if total is None else total
+    if total <= 1:
         return config.tau_end
-    fraction = step / (config.steps - 1)
+    fraction = step / (total - 1)
     return config.tau_start + (config.tau_end - config.tau_start) * fraction
 
 
@@ -154,6 +161,7 @@ def export_for(
         values = losses_for(context, embeds, retriever, config)
     return {
         "episode_id": context.episode.episode_id,
+        "snapshot_id": context.snapshot_id,
         "split": context.episode.split,
         "domain": context.episode.domain,
         "trigger": trigger["trigger"],
@@ -174,20 +182,46 @@ def train(
     resume: bool = False,
     validation: list[Episode] | None = None,
     on_step: Callable[[int, dict[str, Any]], None] | None = None,
+    contexts: list[EpisodeContext] | None = None,
+    initial_state: list[dict[str, Any]] | None = None,
+    steps: int | None = None,
 ) -> tuple[dict[str, Any], list[nn.Module]]:
     """Fit ``config.mode`` over ``episodes`` and write the run's artifacts.
 
     Returns the summary and the fitted modules, one per episode.  For the
     shared modes every entry is the same object; for ``direct-logit`` they are
     genuinely independent, which is what makes it a per-episode baseline.
+
+    Three optional arguments exist for M3's adaptation methods, and keeping them
+    here rather than writing a second loop is deliberate: warm-start and
+    re-optimization must use the exact optimization this file already defines,
+    or a cost comparison between them compares two implementations instead of
+    two methods.
+
+    ``contexts``       materialize the episodes at a drifted snapshot instead of
+                       at ``s0``.
+    ``initial_state``  seed the modules from an earlier snapshot's parameters --
+                       the warm start.  The optimizer moments are *not* carried
+                       across snapshots; a fresh Adam is the conservative
+                       reading, and it can only understate warm-start.
+    ``steps``          a shorter budget than ``config.steps`` for the few-step
+                       arm, recorded in the summary so the budget is visible.
     """
     if not episodes:
         raise ValueError("no training episodes were supplied")
     output_dir = Path(output_dir)
     retriever = workspace.retriever
     seed_everything(config.seed)
+    total_steps = config.steps if steps is None else steps
+    if total_steps < 0:
+        raise ValueError(f"steps must not be negative, got {total_steps}")
 
-    contexts = [workspace.context_for(episode) for episode in episodes]
+    if contexts is None:
+        contexts = [workspace.context_for(episode) for episode in episodes]
+    elif len(contexts) != len(episodes):
+        raise ValueError(
+            f"got {len(contexts)} contexts for {len(episodes)} episodes"
+        )
     if config.mode == "direct-logit":
         # B2 owns one independent logits matrix per episode; nothing is shared,
         # which is exactly what makes it a per-episode search baseline.
@@ -195,6 +229,14 @@ def train(
     else:
         shared = _logits_source(config, retriever, episodes[0])
         modules = [shared] * len(episodes)
+
+    if initial_state is not None:
+        if len(initial_state) != len(modules):
+            raise ValueError(
+                f"got {len(initial_state)} initial states for {len(modules)} modules"
+            )
+        for module, state in zip(modules, initial_state):
+            module.load_state_dict(state)
 
     parameters = list(dict.fromkeys(
         parameter for module in modules for parameter in module.parameters()
@@ -217,8 +259,8 @@ def train(
         start, history = checkpoint["next_step"], checkpoint["history"]
         restore_rng(checkpoint["rng"])
 
-    for step in range(start, config.steps):
-        tau = temperature(config, step)
+    for step in range(start, total_steps):
+        tau = temperature(config, step, total_steps)
         optimizer.zero_grad(set_to_none=True)
         totals: dict[str, float] = {}
         for module, context in zip(modules, contexts):
@@ -226,6 +268,9 @@ def train(
             embeds = _trigger_embeddings(logits, retriever, tau)
             values = losses_for(context, embeds, retriever, config)
             (values["l_total"] / len(contexts)).backward()
+            # One backward per context: the path runs through the frozen
+            # retriever, which is what makes it the expensive half of a step.
+            charge("encoder_backward", 1)
             for key, value in values.items():
                 totals[key] = totals.get(key, 0.0) + float(value.detach()) / len(contexts)
         grad_norm = torch.nn.utils.clip_grad_norm_(parameters, config.grad_clip)
@@ -233,6 +278,7 @@ def train(
         if not torch.isfinite(grad_norm):
             raise RuntimeError(f"step {step}: gradient norm is {float(grad_norm)}")
         optimizer.step()
+        charge("optimizer_steps", 1)
 
         record = {"step": step, "tau": tau, "grad_norm": float(grad_norm)} | totals
         append_jsonl(output_dir / "metrics.jsonl", record)
@@ -257,7 +303,7 @@ def train(
         append_jsonl(output_dir / "triggers.jsonl", trigger)
 
     summary = {
-        "mode": config.mode, "variant": config.variant, "steps": config.steps,
+        "mode": config.mode, "variant": config.variant, "steps": total_steps,
         "episodes": [episode.episode_id for episode in episodes],
         "final": history[-1] if history else None,
         "valid_triggers": sum(1 for trigger in triggers if trigger["round_trip"]["valid"]),
