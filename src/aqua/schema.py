@@ -56,6 +56,13 @@ class Case:
     provenance: dict[str, str]
     authority: dict[str, tuple[str, ...]]
     now: int = 100
+    # VN — Case này có chèn văn bản tấn công vào context hay không. Dataset cũ
+    # không có field này nên mặc định True: file JSONL đã sinh trước đây vẫn đọc
+    # được, và không có case nào lặng lẽ bị coi là sạch.
+    # Whether the attack text is present. Defaults to True so JSONL written
+    # before this field existed still loads, and no old case is silently
+    # reclassified as clean.
+    injection: bool = True
 
     def __post_init__(self):
         if self.split not in SPLITS or self.variant not in VARIANTS:
@@ -100,6 +107,13 @@ def validate_cases(cases):
             raise ValueError(f"{group}: a complete matched quadruple is required")
         if len({r.split for r in rows}) != 1:
             raise ValueError(f"{group}: matched variants cross data splits")
+        # VN — Bốn variant phải cùng có hoặc cùng không có injection. Trộn lẫn thì
+        # "injection" trở thành một biến phụ thuộc variant, và mọi so sánh trong
+        # quadruple mất ý nghĩa.
+        # All four variants share one injection setting: a mixed quadruple makes
+        # injection a confound of the variant it is meant to be compared across.
+        if len({r.injection for r in rows}) != 1:
+            raise ValueError(f"{group}: variants disagree on whether context is injected")
         if any(r.proposed != rows[0].proposed for r in rows):
             raise ValueError(f"{group}: proposed effect must match across variants")
         by_variant = {r.variant: r for r in rows}

@@ -2,7 +2,9 @@
 
 > Viết ngày 2026-09-20, dựa trên code thực tế của `src/aqua/` (pilot đã chạy được).
 > Đọc kèm `_idea/paper_Q1_A_plus.md` §6, §9, §10 và `src/aqua/README.md` §6.
-> **Đây là kế hoạch, chưa phải code.**
+> **Cập nhật 2026-09-20: bước 1–7 đã implement xong** (xem §9). Còn bước 8: shakedown
+> trên model thật. Mọi số hiện có đều từ `FixtureBackend` hoặc Llama ngẫu nhiên tí hon
+> và **không phải kết quả**.
 
 ## 0. Hai lỗ hổng chặn AQuA lại
 
@@ -240,18 +242,24 @@ Toàn bộ chạy trên `FixtureBackend`, CPU, không tải model.
 
 ## 9. Thứ tự làm
 
-1. `injection` + `--injection none` + `authshift_clean.jsonl` + test parity. Đây là phần
-   rẻ nhất và nó một mình đã sửa được diễn giải của `false_deny`.
-2. Sửa `sandbox.observe` nhận `call`, sửa `unauthorized_fields_executed`. Chạy lại
-   `tests.test_aqua` — phải còn xanh vì mặc định không đổi.
-3. `Proposal` + `FixtureBackend.propose` + parser JSON có span. Chưa đụng HF.
-4. `HuggingFaceBackend.propose` (generate + capture lượt 2).
-5. `agent_unguarded`, `agent_detector` trong `evaluation.MODES` + metric mới.
-6. Hai biến thể regenerate, báo riêng.
-7. `--clean-dataset` trong `evaluate` + mục `metrics["clean"]`.
-8. Shakedown 40 group trên model thật, đo latency, rồi mới chạy 500.
-
-Bước 1–3, 5, 7 chạy hoàn toàn trên CPU bằng fixture. Chỉ bước 4, 6, 8 cần GPU.
+1. ~~`injection` + `--injection none` + `authshift_clean.jsonl` + test parity.~~ **xong**
+   — thêm `benchmark.assert_companion` ép tập clean chỉ khác đúng một thứ.
+2. ~~Sửa `sandbox.observe` nhận `call`.~~ **xong**. Hai điểm thực tế khác kế hoạch:
+   `unauthorized_fields_executed` giờ tính từ `grant.allows(actual)`, và `observe` dùng
+   **sentinel** chứ không dùng `None` làm mặc định — `call=None` phải có nghĩa "agent
+   abstain", trùng với mặc định thì mọi lần abstain bị tính là đã thực thi candidate.
+3. ~~`Proposal` + `FixtureBackend.propose` + parser JSON có span.~~ **xong** —
+   `prompts.parse_call_with_spans`, scanner tự viết để span trỏ đúng ký tự model sinh ra.
+4. ~~`HuggingFaceBackend.propose`.~~ **xong**, kiểm chứng trên Llama ngẫu nhiên tí hon
+   (vocab 4 token) ở `tests/test_aqua_generation.py`: nhánh parse_error, dọn hook, chặn
+   truncation. **Chưa chạy trên model thật.**
+5. ~~`agent_*` trong `evaluation.MODES` + metric mới.~~ **xong** — 4 chế độ agent,
+   `abstain_rate`, `invalid_call_rate`, `argument_agreement`, mục `proposals`.
+6. ~~Regenerate.~~ **xong** biến thể `agent_scrub_regenerate` (twopass).
+   `scrub_regenerate_prompt` **chưa làm** — cần thiết kế riêng cho residual mức prompt.
+7. ~~`--clean-dataset` + `metrics["clean"]`.~~ **xong**; `smoke` chạy cả hai giao thức
+   và cả tập clean, vì nhánh agent không ai gọi sẽ hỏng lặng lẽ tới lần chạy GPU đầu.
+8. **Chưa chạy** — shakedown 40 group trên model thật, đo latency, rồi mới 500 group.
 
 ## 10. Điều gì làm AQuA thất bại — ghi trước khi chạy
 
