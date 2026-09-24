@@ -34,8 +34,10 @@ HF mới dùng positional representations.
 | `random` | Chia train ngẫu nhiên cân bằng; mỗi nhóm một trigger | Hash câu sạch, cố định theo seed |
 | `semantic` | K-means trên clean query embeddings | Tâm sạch gần nhất |
 | `per_query` | Mỗi câu train học một trigger | Trigger của câu train gần nhất |
-| `hierarchical_merge` | Học từng câu, dựng cây, lấy trigger con làm khởi tạo rồi tối ưu ở cha | Dùng root universal |
-| `hierarchical_mix` | Như trên, thêm crossover giữa các đoạn của trigger con | Dùng root universal |
+| `hierarchical_merge` | Học từng câu, dựng cây theo **tác động của trigger**, lấy trigger con làm khởi tạo rồi tối ưu ở cha | Dùng root universal |
+| `hierarchical_mix` | Như `merge`, thêm crossover giữa các đoạn của trigger con | Dùng root universal |
+| `hierarchical_query` | Như `merge`, nhưng dựng cây theo **embedding câu sạch** | Dùng root universal |
+| `hierarchical_both` | Như `merge`, dựng cây theo **cả hai**, nối hai nửa đã chuẩn hóa | Dùng root universal |
 
 `per_query` trên test là **chuyển giao bộ trigger từng câu train qua nearest neighbor**.
 Không tối ưu trực tiếp trên test, cũng không chọn trigger thắng bằng test labels.
@@ -53,6 +55,37 @@ Nó không phải baseline per-instance oracle được phép truy cập test l�
 Nhánh mix ghép prefix của một trigger con với suffix của trigger còn lại, rồi
 tiếp tục discrete search. Nhánh merge không thực hiện parent crossover.
 Cả hai phải thỏa cùng giới hạn độ dài với universal trực tiếp.
+
+Bước 4 chọn **cái gì được phân cụm**, do `merge_signatures` quyết định: `effect` gom theo
+tác động của trigger, `query` gom theo embedding câu sạch (không tốn thêm request vì routing
+đã cần nó), `both` nối hai nửa nên một lần gộp phải hợp lý trên cả hai trục cùng lúc.
+
+## False activation đọc thế nào
+
+`evaluate_bank` báo ba con số cạnh nhau, không bao giờ báo riêng `false_activation`:
+
+| Khóa | Nghĩa |
+|---|---|
+| `false_activation` | Câu sạch (không chèn trigger) vượt top-k corpus của chính nó trên một poison key |
+| `false_activation_baseline` | Như trên nhưng poison key là **source question chưa chèn trigger** |
+| `false_activation_attributable` | Chỉ những câu vượt ở cột 1 mà **không** vượt ở cột 2 |
+
+Vì sao cần baseline: poison key là *câu hỏi + trigger*, trong khi `objective.clean` là
+*đoạn Wikipedia*. Hai loại văn bản khác nhau, nên một câu sạch có thể vượt top-k của chính
+nó trên poison key chỉ vì key có dạng câu hỏi, chưa cần trigger đóng góp gì. Baseline mã
+hóa đúng các source đó mà không chèn trigger, nên phần chênh lệch mới là phần trigger chịu
+trách nhiệm. Con số 8–9/16 trong pilot DPR được đo **trước khi** có baseline này, nên chưa
+tách được hai nguyên nhân; phải chạy lại mới diễn giải được.
+
+## Dừng gộp ở đâu
+
+Mỗi nhánh bottom-up ghi `hierarchy.loss_curve`: loss train trung bình của các node đang hoạt
+động, cho **mọi mức** từ lá lên gốc, kèm `hierarchy.cuts` tương ứng. `hierarchy.stopping`
+áp quy tắc hội tụ trong `converged_level`: đi từ lá lên, dừng ở mức đầu tiên mà loss train
+tăng quá `tolerance` (tương đối, mặc định .05) so với mức ngay dưới. Quy tắc này **chỉ đọc
+loss train**, không chạm validation hay test, nên có thể báo cạnh một mức chọn bằng
+validation mà không làm hỏng mức đó. Chọn mức cuối cùng để kết luận vẫn phải làm trên
+validation rồi mới xác nhận một lần trên test.
 
 Artifact lưu cả **lexical Jaccard**, **effect cosine**, tần suất từ xuất hiện ở các
 leaf, trigger của từng node và đường gộp. Từ giống nhau không mặc định có tác động

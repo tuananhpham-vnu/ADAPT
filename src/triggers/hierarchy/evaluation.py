@@ -34,6 +34,14 @@ def evaluate_bank(bank, rows, sources, objective):
     hit = poison_score > clean_kth  # Conservative tie handling.
     original_kth = (clean_queries @ objective.clean.T).topk(objective.top_k, dim=1).values[:, -1]
     false_activation = (clean_queries @ poison.T).max(1).values > original_kth
+    # No-trigger key baseline.  A poison key is the source question with a trigger spliced
+    # in, so it stays a question, while objective.clean holds corpus paragraphs.  A clean
+    # query can therefore outrank its own corpus top-k on a poison key purely because the
+    # key is question-shaped.  Encoding the same sources with no trigger isolates how much
+    # of false_activation the trigger is actually responsible for.
+    baseline_keys = [row["question"] for row in sources]
+    baseline = objective.encoder.encode(baseline_keys)
+    baseline_activation = (clean_queries @ baseline.T).max(1).values > original_kth
     records = []
     for i, row in enumerate(rows):
         records.append({"qid": row["qid"], "group": int(assignments[i]), "original": row["question"],
@@ -42,7 +50,10 @@ def evaluate_bank(bank, rows, sources, objective):
                         "trigger_tokens": objective.encoder.token_count(bank["triggers"][int(assignments[i])]),
                         "retrieval_hit": bool(hit[i]), "retrieval_margin": float(poison_score[i] - clean_kth[i]),
                         "winning_poison_group": owners[int(poison_index[i])],
-                        "false_activation_without_trigger": bool(false_activation[i]), **quality[i]})
+                        "false_activation_without_trigger": bool(false_activation[i]),
+                        "false_activation_untriggered_keys": bool(baseline_activation[i]),
+                        "false_activation_attributable": bool(false_activation[i] and not baseline_activation[i]),
+                        **quality[i]})
     def metrics(subset):
         if not subset:
             return None
@@ -51,7 +62,9 @@ def evaluate_bank(bank, rows, sources, objective):
                 "meaning_pass_rate": sum(r["meaning_proxy_pass"] for r in subset) / n,
                 "joint_success_rate": sum(r["retrieval_hit"] and r["meaning_proxy_pass"] for r in subset) / n,
                 "semantic_similarity": sum(r["semantic_similarity"] for r in subset) / n,
-                "false_activation": sum(r["false_activation_without_trigger"] for r in subset) / n}
+                "false_activation": sum(r["false_activation_without_trigger"] for r in subset) / n,
+                "false_activation_baseline": sum(r["false_activation_untriggered_keys"] for r in subset) / n,
+                "false_activation_attributable": sum(r["false_activation_attributable"] for r in subset) / n}
     per_group = {str(i): metrics([r for r in records if r["group"] == i]) for i in range(len(counts))}
     supported = [m for m in per_group.values() if m is not None]
     return {"metrics": {**metrics(records), "macro_joint_success": sum(m["joint_success_rate"] for m in supported) / len(supported),

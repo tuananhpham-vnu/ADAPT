@@ -216,9 +216,13 @@ Theo thứ tự ưu tiên:
 
 1. Thay GMM bằng clustering cân bằng theo similarity (Algorithm 1 của UniC-RAG) cho
    nhánh `semantic`, rồi chạy lại đúng cấu hình này để so trực tiếp.
-2. Sửa false activation ở stage `bank`. Lượt DPR trước có 8–9/16 câu sạch đã truy hồi
-   poison key khi **không** chèn trigger; khi đó mọi so sánh giữa các nhánh đều nằm
-   trong nhiễu.
+2. ~~Sửa false activation ở stage `bank`.~~ **Đã thêm công cụ đo, chưa chạy lại.**
+   `evaluate_bank` nay báo thêm `false_activation_baseline` (mã hóa đúng các source đó
+   nhưng **không** chèn trigger) và `false_activation_attributable` (hiệu của hai cột).
+   Nguyên nhân cấu trúc: poison key là *câu hỏi + trigger* còn `objective.clean` là
+   *đoạn Wikipedia*, nên câu sạch có thể vượt top-k của chính nó chỉ vì key có dạng câu
+   hỏi. Con số 8–9/16 của lượt DPR trước được đo trước khi có baseline, nên chưa tách
+   được hai nguyên nhân; phải chạy lại stage `bank` mới diễn giải được.
 3. Thêm trục detector: đo tỷ lệ trigger lọt qua bộ lọc perplexity. Đây là trục làm
    cho claim "tồn tại mức chuyên biệt tối ưu" có chỗ đứng, vì trên trục ASR × chi phí
    thì UniC-RAG đã cho thấy càng nhiều nhóm càng tốt.

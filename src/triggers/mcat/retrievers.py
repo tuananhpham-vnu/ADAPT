@@ -82,9 +82,13 @@ def build_fixture_retriever(
     from transformers import BertConfig, BertModel, BertTokenizerFast
 
     words = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"] + [f"w{i}" for i in range(vocabulary)]
-    directory = Path(tempfile.mkdtemp(prefix="mcat-fixture-"))
-    (directory / "vocab.txt").write_text("\n".join(words) + "\n", encoding="utf-8")
-    tokenizer = BertTokenizerFast(vocab_file=str(directory / "vocab.txt"))
+    # BertTokenizerFast reads the vocabulary once at construction, so the file does not
+    # need to outlive this block.  mkdtemp did leave it behind, and every call to this
+    # helper leaked one directory into the system temp.
+    with tempfile.TemporaryDirectory(prefix="mcat-fixture-") as directory:
+        vocabulary_file = Path(directory) / "vocab.txt"
+        vocabulary_file.write_text("\n".join(words) + "\n", encoding="utf-8")
+        tokenizer = BertTokenizerFast(vocab_file=str(vocabulary_file))
     config = BertConfig(vocab_size=len(words), hidden_size=hidden, num_hidden_layers=layers,
                         num_attention_heads=2, intermediate_size=hidden * 2,
                         max_position_embeddings=max(64, max_length * 2))

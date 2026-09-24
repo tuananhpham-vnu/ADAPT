@@ -6,19 +6,25 @@ import torch
 
 from src.triggers.clustering import assign, fit_centers
 from .evaluation import evaluate_bank
-from .hierarchy import build_tree, effect_signatures, lexical_similarity
+from .hierarchy import build_tree, converged_level, effect_signatures, lexical_similarity, merge_signatures
 from .io import digest, read, write
 from .search import Budget, allocate, optimize
 
-ARMS = ("universal", "random", "semantic", "per_query", "hierarchical_merge", "hierarchical_mix")
+ARMS = ("universal", "random", "semantic", "per_query", "hierarchical_merge", "hierarchical_mix",
+        "hierarchical_query", "hierarchical_both")
+
+# Which leaf signatures each bottom-up arm clusters on; see hierarchy.merge_signatures.
+MERGE_BASIS = {"hierarchical_merge": "effect", "hierarchical_mix": "effect",
+               "hierarchical_query": "query", "hierarchical_both": "both"}
 
 
-def fit_bank(name, data, objective, total_budget, groups, seed):
+def fit_bank(name, data, objective, total_budget, groups, seed, *, merge_tolerance=.05):
     train, sources = data["train"], data["sources"]
     # Routing embeddings are shared preparation, not attack-modified queries.
     clean_train = objective.encoder.encode([r["question"] for r in train])
-    if name in {"hierarchical_merge", "hierarchical_mix"}:
-        return fit_hierarchy(name, data, objective, total_budget, seed, clean_train)
+    if name in MERGE_BASIS:
+        return fit_hierarchy(name, data, objective, total_budget, seed, clean_train,
+                             tolerance=merge_tolerance)
     k = 1 if name == "universal" else len(train) if name == "per_query" else groups
     if name == "semantic":
         centers = fit_centers(clean_train, k, seed=seed)
@@ -49,7 +55,7 @@ def fit_bank(name, data, objective, total_budget, groups, seed):
             "budget_limit": total_budget, "poison_allocation": poison_counts}
 
 
-def fit_hierarchy(name, data, objective, total_budget, seed, clean_train):
+def fit_hierarchy(name, data, objective, total_budget, seed, clean_train, *, tolerance=.05):
     train, sources = data["train"], data["sources"]
     n = len(train)
     poison_counts = allocate(len(sources), n)
@@ -65,7 +71,7 @@ def fit_hierarchy(name, data, objective, total_budget, seed, clean_train):
     signatures = effect_signatures(objective.encoder, [r["trigger"] for r in leaves], train[:min(2, n)],
                                    objective.position, global_budget)
     signature_cost = global_budget.used - spent_leaves
-    merges = build_tree(signatures)
+    merges = build_tree(merge_signatures(MERGE_BASIS[name], signatures, clean_train))
     # Reserve enough to score at least one candidate at every internal node.
     minimums = [len(node["leaves"]) + sum(poison_counts[i] for i in node["leaves"]) for node in merges]
     remaining = total_budget - global_budget.used
@@ -93,22 +99,30 @@ def fit_hierarchy(name, data, objective, total_budget, seed, clean_train):
                 "lexical_jaccard": lexical_similarity([r["trigger"] for r in leaves]),
                 "token_leaf_frequency": dict(tokens.most_common()),
             }}
-    # Predeclared cuts expose the trend from leaves to root without choosing on test.
-    active, cuts = list(range(n)), {}
+    # Every level from leaves to root, so the loss curve is complete.  Cuts are only
+    # described here; which one to keep is chosen later, on validation, never on test.
+    active, cuts, loss_curve = list(range(n)), {}, {}
     source_leaves = [i for i, count in enumerate(poison_counts) for _ in range(count)]
-    desired = {n, max(2, n // 2), 2, 1}
     for merge in [None, *merges]:
         if merge:
             active = [i for i in active if i not in {merge["left"], merge["right"]}] + [merge["id"]]
-        if len(active) in desired:
-            cuts[str(len(active))] = {
-                "routing": "universal" if len(active) == 1 else "nearest_clean_center", "seed": seed,
-                "centers": torch.stack([clean_train[nodes[i]["leaves"]].mean(0) for i in active]).tolist(),
-                "triggers": [nodes[i]["trigger"] for i in active],
-                "source_groups": [next(g for g, node in enumerate(active) if leaf in nodes[node]["leaves"])
-                                  for leaf in source_leaves],
-            }
+        level = str(len(active))
+        loss_curve[level] = sum(nodes[i]["loss"] for i in active) / len(active)
+        cuts[level] = {
+            "routing": "universal" if len(active) == 1 else "nearest_clean_center", "seed": seed,
+            "centers": torch.stack([clean_train[nodes[i]["leaves"]].mean(0) for i in active]).tolist(),
+            "triggers": [nodes[i]["trigger"] for i in active],
+            "source_groups": [next(g for g, node in enumerate(active) if leaf in nodes[node]["leaves"])
+                              for leaf in source_leaves],
+        }
     bank["hierarchy"]["cuts"] = cuts
+    bank["hierarchy"]["loss_curve"] = loss_curve
+    bank["hierarchy"]["stopping"] = {
+        "basis": MERGE_BASIS[name], "tolerance": tolerance,
+        "converged_level": converged_level(loss_curve, tolerance),
+        "rule": "Merge upward while the mean training loss of the active nodes rises by at "
+                "most tolerance (relative) per level; training loss only, no validation or test",
+    }
     return bank
 
 

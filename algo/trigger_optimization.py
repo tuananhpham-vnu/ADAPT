@@ -624,7 +624,7 @@ if __name__ == "__main__":
                 if args.agent == "ad":
                     CoT_prefix, trigger_sequence = trigger_insertion(adv_passage_token_list, CoT_example_set, end_backdoor_reasoning_system_prompt)
         
-                # print(f'Accumulating Gradient {args.num_grad_iter}')
+                print(f'Accumulating Gradient {args.num_grad_iter}')
                 model.zero_grad()
 
                 # pbar = range(args.num_grad_iter)
@@ -663,8 +663,8 @@ if __name__ == "__main__":
                     else:
                         grad += grad_sum / args.num_grad_iter
 
-                # print('Loss', loss_sum)
-                # print('Evaluating Candidates')
+                print('Loss', loss_sum)
+                print('Evaluating Candidates')
                 pbar = range(min(len(train_dataloader), args.num_grad_iter))
                 train_iter = iter(train_dataloader)
 

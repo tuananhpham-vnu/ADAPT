@@ -38,12 +38,16 @@ chứ không sửa LLM. Pipeline vì thế gồm 3 giai đoạn:
 |---|---|---|
 | [`margin.py`](src/triggers/README.md) | AgentPoison + retrieval margin, 6 stage, resume được | Pipeline đủ, cần 2 GPU. Xem [`_guidance/19`](_guidance/19_agentpoison_margin_implementation.md) |
 | [`mcat/`](src/triggers/mcat/README.md) | Generator sinh trigger theo trạng thái long-term memory | M0–M2 xong, test xanh, **chưa có số thật**. Xem [`_guidance/20`](_guidance/20_mcat_kaggle_runbook.md) |
-| [`hierarchy/`](src/triggers/hierarchy/README.md) | Trigger universal / theo nhóm / từng câu | Có pilot DPR thật (**kết quả âm**), **hiện không import được** |
-| [`specificity/`](src/triggers/specificity/README.md) | Độ bám query và chất lượng ngôn ngữ của trigger | Có kết quả, chưa đo ASR, **hiện không import được** |
+| [`hierarchy/`](src/triggers/hierarchy/README.md) | Trigger universal / theo nhóm / từng câu, gộp dần từ dưới lên | Có pilot DPR thật (**kết quả âm**), import được, test xanh |
+| [`specificity/`](src/triggers/specificity/README.md) | Độ bám query và chất lượng ngôn ngữ của trigger | Có kết quả, chưa đo ASR |
 
-`hierarchy/` và `specificity/` cùng gọi `assign` từ `src/triggers/clustering.py`, nhưng hàm
-đó không tồn tại. Hai test tương ứng đang đỏ. Chi tiết và chữ ký cần khôi phục ở
-[`src/triggers/README.md`](src/triggers/README.md).
+`assign` trong [`src/triggers/clustering.py`](src/triggers/clustering.py) đã được khôi phục,
+nên hai nhánh trên import bình thường trở lại.
+
+> **Cảnh báo về kiểm thử:** `.gitignore` đang bỏ qua cả thư mục `tests/`, nên chỉ 3/14 file
+> test nằm trong repo. CI vì thế chạy 13/254 test rồi báo xanh. Muốn CI có ý nghĩa thì phải
+> gỡ `tests/` khỏi `.gitignore` và commit 11 file còn lại. `_idea/` cũng đang bị bỏ qua, nên
+> toàn bộ đề xuất nghiên cứu và kết quả pilot mà README này trỏ tới chỉ tồn tại trên máy local.
 
 ### Phòng thủ — `src/aqua/`, `src/adapt/`
 

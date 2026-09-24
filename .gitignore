@@ -193,7 +193,7 @@ survey/
 # _guidance/
 _idea/
 _report/
-tests/
+# tests/
 
 # _planner/
 # !_planner/

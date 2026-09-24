@@ -19,6 +19,53 @@ def effect_signatures(encoder, triggers, anchors, position, budget):
     return F.normalize(torch.stack(signatures), dim=-1)
 
 
+def merge_signatures(basis, effect, queries):
+    """Leaf signatures the merge tree is built from.
+
+    ``effect`` is where a trigger pushes the anchor queries, so clustering on it groups
+    leaves by what their triggers *do*.  ``query`` clusters on the clean query embedding
+    instead, which costs no extra encoder request because routing already needs it.
+    ``both`` concatenates the two normalized halves, so a merge has to be justified on
+    trigger effect and on topic at once.
+    """
+    e = F.normalize(torch.as_tensor(effect).float(), dim=-1)
+    q = F.normalize(torch.as_tensor(queries).float(), dim=-1)
+    if len(e) != len(q):
+        raise ValueError("Effect and query signatures must cover the same leaves")
+    if basis == "effect":
+        return e
+    if basis == "query":
+        return q
+    if basis == "both":
+        return F.normalize(torch.cat([e, q], dim=-1), dim=-1)
+    raise ValueError("basis must be 'effect', 'query' or 'both'")
+
+
+def converged_level(loss_curve, tolerance):
+    """Where to stop merging, read off the training loss alone.
+
+    Walks from the leaves towards the root and stops at the first level whose mean
+    training loss rises more than ``tolerance`` (relative) above the level below it.
+    Sharing one trigger across more queries normally costs loss, so this is the point
+    where the shared trigger stops paying for itself.  It reads training loss only and
+    never touches validation or test, so it can be reported next to a validation-chosen
+    level without contaminating it.
+    """
+    if tolerance < 0:
+        raise ValueError("tolerance must be nonnegative")
+    levels = sorted((int(k) for k in loss_curve), reverse=True)
+    if not levels:
+        raise ValueError("A loss curve needs at least one level")
+    stop = levels[0]
+    for below, level in zip(levels, levels[1:]):
+        reference = abs(loss_curve[str(below)])
+        allowed = loss_curve[str(below)] + tolerance * (reference if reference else 1.0)
+        if loss_curve[str(level)] > allowed:
+            break
+        stop = level
+    return stop
+
+
 def build_tree(signatures):
     n = len(signatures)
     if n < 2:
