@@ -5,12 +5,23 @@
 # clean-vector cache, so the corpus is encoded once rather than once per arm.
 #
 # Usage (from repo root):
-#   bash scripts/run_mcat_kaggle.sh                  # preflight + the main arm (m1)
-#   bash scripts/run_mcat_kaggle.sh m1 b4 b5 b6      # pick arms
-#   bash scripts/run_mcat_kaggle.sh all              # every arm
-#   bash scripts/run_mcat_kaggle.sh preflight        # checks only, touches no GPU
-#   RESUME=1 bash scripts/run_mcat_kaggle.sh all     # continue after a 12h cutoff
-#   STEPS=50 DOMAINS="qa" bash scripts/run_mcat_kaggle.sh m1     # quick shakedown
+#   bash scripts/run_mcat.sh                  # preflight + the main arm (m1)
+#   bash scripts/run_mcat.sh m1 b4 b5 b6      # pick arms
+#   bash scripts/run_mcat.sh all              # every arm
+#   bash scripts/run_mcat.sh preflight        # checks only, touches no GPU
+#   RESUME=1 bash scripts/run_mcat.sh all     # continue after a 12h cutoff
+#   STEPS=50 DOMAINS="qa" bash scripts/run_mcat.sh m1     # quick shakedown
+#
+# M3 drift (off unless DRIFT=1):
+#   DRIFT=1 bash scripts/run_mcat.sh m1                   # drift on EVAL_SPLIT
+#   DRIFT=1 SWEEP_STEPS="1 5 10 25 50" bash scripts/run_mcat.sh m1
+#                                                                # pick the few-step
+#                                                                # budget on VALIDATION
+#   DRIFT=1 WRITE_POLICY=fixed bash scripts/run_mcat.sh m1
+#
+# Run the sweep first, read drift/refresh-steps<N>-validation/drift_evaluation.json,
+# lock ADAPT_STEPS, and only then run the test split. Choosing the budget on test
+# is choosing the result.
 #
 # Arms (see _idea/memory_conditioned_generator_Q1_A_star.md section 9):
 #   m1      memory+query generator ............ the method
@@ -64,6 +75,20 @@ MAX_LENGTH="${MAX_LENGTH:-256}"
 INDEX_BATCH="${INDEX_BATCH:-64}"
 EVAL_SPLIT="${EVAL_SPLIT:-test}"
 CORPUS_LIMIT="${CORPUS_LIMIT:-}"
+
+# --- M3 drift (off by default; M0-M2 arms are unchanged when DRIFT=0) ---------
+# DRIFT=1 adds prepare-drift -> adapt -> evaluate-drift to each arm.
+# SWEEP_STEPS picks the few-step budget on VALIDATION and must be run before any
+# test-split drift run: the budget is a free parameter, and choosing it on test
+# is choosing a result.  Each budget writes its own directory under drift/.
+DRIFT="${DRIFT:-0}"
+DRIFT_SPLIT="${DRIFT_SPLIT:-$EVAL_SPLIT}"
+ADAPT_STEPS="${ADAPT_STEPS:-10}"
+WRITE_POLICY="${WRITE_POLICY:-refresh}"
+GROWTH="${GROWTH:-0.25 0.5 1.0}"
+METHODS="${METHODS:-reuse generate warm-start scratch}"
+BASELINE="${BASELINE:-scratch}"
+SWEEP_STEPS="${SWEEP_STEPS:-}"
 RESUME="${RESUME:-0}"
 SKIP_PREFLIGHT="${SKIP_PREFLIGHT:-0}"
 # FIXTURE=1 runs every arm against the CPU fixture encoder: no download, no GPU,
@@ -106,6 +131,11 @@ TRAIN_FLAGS="--steps $STEPS --learning-rate $LR --tau-start $TAU_START \
 
 RESUME_FLAG=""
 [ "$RESUME" = "1" ] && RESUME_FLAG="--resume"
+
+METHOD_FLAGS=""
+for method in $METHODS; do METHOD_FLAGS="$METHOD_FLAGS --method $method"; done
+DRIFT_FLAGS="--growth $GROWTH $METHOD_FLAGS --write-policy $WRITE_POLICY \
+--baseline $BASELINE --split $DRIFT_SPLIT"
 
 arm_flags () {
   case "$1" in
@@ -198,7 +228,22 @@ run_arm () {
     $PYTHON -m src.triggers.mcat index            $common
     $PYTHON -m src.triggers.mcat train            $common $TRAIN_FLAGS $flags $RESUME_FLAG
     $PYTHON -m src.triggers.mcat evaluate         $common $TRAIN_FLAGS $flags --split "$EVAL_SPLIT" $RESUME_FLAG
-    $PYTHON -m src.triggers.mcat report           $common
+    if [ "$DRIFT" = "1" ]; then
+      $PYTHON -m src.triggers.mcat prepare-drift  $common --growth $GROWTH
+      if [ -n "$SWEEP_STEPS" ]; then
+        # Budget selection, on validation only. Each value lands in its own
+        # drift/<policy>-steps<N>-<split>/ directory, so the arms stay separable
+        # and nothing has to be locked in before the numbers are in.
+        for budget in $SWEEP_STEPS; do
+          $PYTHON -m src.triggers.mcat adapt         $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --split validation --adapt-steps "$budget" $RESUME_FLAG
+          $PYTHON -m src.triggers.mcat evaluate-drift $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --split validation --adapt-steps "$budget"
+        done
+      else
+        $PYTHON -m src.triggers.mcat adapt          $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --adapt-steps "$ADAPT_STEPS" $RESUME_FLAG
+        $PYTHON -m src.triggers.mcat evaluate-drift $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --adapt-steps "$ADAPT_STEPS"
+      fi
+    fi
+    $PYTHON -m src.triggers.mcat report           $common $DRIFT_FLAGS --adapt-steps "$ADAPT_STEPS"
   ) > "$log" 2>&1
   local status=$?
   if [ $status -ne 0 ]; then

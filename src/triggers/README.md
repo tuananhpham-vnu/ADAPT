@@ -60,7 +60,7 @@ kết quả. Đây là **khôi phục theo suy luận**, không phải bản g�
 
 ```bash
 python -m src.triggers.margin smoke --output-dir outputs/agentpoison_margin/smoke
-bash scripts/run_mcat_kaggle.sh preflight
+bash scripts/run_mcat.sh preflight
 ```
 
 ## Ba ranh giới không được lẫn

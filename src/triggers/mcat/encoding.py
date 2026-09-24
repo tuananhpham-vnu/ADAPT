@@ -16,6 +16,8 @@ from typing import Sequence
 
 import torch
 
+from src.triggers.mcat.costs import record
+
 
 def freeze_retriever(model) -> None:
     """Freeze every retriever parameter and drop any stale gradient."""
@@ -32,6 +34,9 @@ def trigger_embeddings_from_ids(model, trigger_ids: torch.Tensor) -> torch.Tenso
 def encode_plain(
     model, tokenizer, texts: Sequence[str], *, device: str, max_length: int
 ) -> torch.Tensor:
+    # The one place plain encoding happens, so it is the one place it is
+    # counted; without an active ledger this costs nothing (see costs.record).
+    record("encoder_forward", len(texts))
     encoded = tokenizer(list(texts), padding=True, truncation=True,
                         max_length=max_length, return_tensors="pt")
     encoded = {key: value.to(device) for key, value in encoded.items()}
@@ -63,6 +68,9 @@ def encode_with_trigger_embeddings(
             "tokens plus [CLS] and [SEP]"
         )
 
+    # Counted only once the call is known to be well formed, so a rejected
+    # configuration never shows up as work the retriever did.
+    record("encoder_forward", len(texts))
     pieces, masks = [], []
     for text in texts:
         prefix = tokenizer(text, add_special_tokens=False, truncation=True,

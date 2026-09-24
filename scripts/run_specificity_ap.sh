@@ -109,6 +109,11 @@ LANG_POSITION="${LANG_POSITION:-prefix}"
 # per_query gives each of its TRAIN_SIZE triggers BUDGET/TRAIN_SIZE requests.
 BUDGET="${BUDGET:-1536}"
 CANDIDATE_CAP="${CANDIDATE_CAP:-20}"
+# Insertion positions for stage `bank`. Stage `language` only ever reads the prefix
+# bank (its renderer writes "Topic: <query>"), so anything beyond prefix here buys
+# retrieval numbers for the REPORT.md table and nothing else.
+#   POSITIONS="prefix suffix" bash scripts/run_specificity_ap.sh bank summary
+POSITIONS="${POSITIONS:-prefix}"
 
 DATA_DIR="${DATA_DIR:-ReAct/database}"
 TRAIN_FILE="$DATA_DIR/strategyqa_train_filtered.json"
@@ -138,7 +143,7 @@ mkdir -p "$RUN_ROOT"
 # Fails before anything expensive starts. Checks the four things that actually break
 # on a fresh Kaggle session: missing packages, missing data files, no GPU, wrong cwd.
 stage_preflight () {
-  echo "===== preflight ====="
+  echo "============================== preflight =============================="
   $PYTHON - <<'PY' || return 1
 import sys
 missing = []
@@ -217,7 +222,7 @@ for p in problems:
     print(f"!! {p}", file=sys.stderr)
 sys.exit(1 if problems else 0)
 PY
-  echo "===== preflight ok ====="
+  echo "============================== preflight ok =============================="
 }
 
 # ------------------------------------------------------------------- stage: models
@@ -228,7 +233,7 @@ PY
 # Fetching each name into both caches costs a few hundred MB and removes the whole
 # class of "works on my machine, local_files_only fails on Kaggle" errors.
 stage_models () {
-  echo "===== models (needs internet) ====="
+  echo "============================== models (needs internet) =============================="
   MODEL_CACHE="$MODEL_CACHE" DPR_MODEL="$DPR_MODEL" $PYTHON - <<'PY' || return 1
 import os
 from transformers import (AutoModel, AutoModelForCausalLM, AutoModelForTokenClassification,
@@ -248,7 +253,7 @@ for name, loader in models:
         loader.from_pretrained(name, **kwargs)
     print(f"  cached {name}", flush=True)
 PY
-  echo "===== models ok ====="
+  echo "============================== models ok =============================="
 }
 
 # -------------------------------------------------------------------- stage: index
@@ -259,12 +264,12 @@ PY
 # The encoder here is pinned in src/agentpoison/strategyqa.py (ENCODER), so overriding
 # DPR_MODEL without editing that constant makes stage `bank` reject the cache.
 stage_index () {
-  echo "===== index ====="
+  echo "============================== index =============================="
   $PYTHON -m src.agentpoison.strategyqa index \
     --corpus "$CORPUS_FILE" --questions "$QUESTION_FILE" --index "$INDEX_DIR" \
     --device "$DEVICE" --batch-size "$BATCH_SIZE" --max-length "$MAX_LENGTH" || return 1
   ls -la "$INDEX_DIR"
-  echo "===== index ok ====="
+  echo "============================== index ok =============================="
 }
 
 # --------------------------------------------------------------------- stage: bank
@@ -280,7 +285,7 @@ stage_index () {
 # score the language side of the suffix bank as well, set LANG_POSITION=suffix with its
 # own LANG_DIR, because the language contract pins one position per output directory.
 stage_bank () {
-  echo "===== bank ====="
+  echo "============================== bank =============================="
   $PYTHON -m src.triggers.hierarchy compare \
     --backend hf --output "$BANK_DIR" \
     --arms universal semantic per_query --positions $POSITIONS \
@@ -293,7 +298,7 @@ stage_bank () {
     --train "$TRAIN_FILE" --test "$TEST_FILE" --corpus "$CORPUS_FILE" \
     ${VALIDATION_FILE:+--validation "$VALIDATION_FILE"} \
     --corpus-embeddings "$INDEX_DIR/vectors.npy" || return 1
-  echo "===== bank ok -> $BANK_DIR/REPORT.md ====="
+  echo "============================== bank ok -> $BANK_DIR/REPORT.md =============================="
 }
 
 # ----------------------------------------------------------------- stage: language
@@ -308,20 +313,24 @@ stage_bank () {
 # Variants are frozen on the 16 validation queries BEFORE the fresh test is scored, and
 # the reported numbers come from two audit models that never took part in selection.
 stage_language () {
-  echo "===== language ====="
+  echo "============================== language =============================="
+  if [ ! -d "$BANK_DIR/prefix" ]; then
+    echo "!! stage language needs $BANK_DIR/prefix; re-run stage bank with prefix in POSITIONS" >&2
+    return 1
+  fi
   $PYTHON -m src.triggers.specificity \
     --source "$BANK_DIR" --output "$LANG_DIR" \
     --fresh-test-size "$FRESH_TEST_SIZE" --seed "$LANGUAGE_SEED" --position "$LANG_POSITION" \
     --candidate-cap "$CANDIDATE_CAP" --phrase-mode pos \
     --device "$DEVICE" --model-cache "$MODEL_CACHE" || return 1
-  echo "===== language ok -> $LANG_DIR/REPORT.md ====="
+  echo "============================== language ok -> $LANG_DIR/REPORT.md =============================="
 }
 
 # ------------------------------------------------------------------- stage: summary
 # One table, audit-model scores, fresh test split only.
 stage_summary () {
   echo ""
-  echo "===== summary ($LANG_DIR, fresh test, audit models) ====="
+  echo "============================== summary ($LANG_DIR, fresh test, audit models) =============================="
   LANG_DIR="$LANG_DIR" BANK_DIR="$BANK_DIR" $PYTHON - <<'PY'
 import json, os
 from pathlib import Path
@@ -400,9 +409,10 @@ run_stage () {
   echo ""
   echo ">> stage [$stage] -> $log"
   {
-    echo "===== $stage started $(date -u '+%Y-%m-%dT%H:%M:%SZ') ====="
+    echo "============================== $stage started $(date -u '+%Y-%m-%dT%H:%M:%SZ') =============================="
     echo "     run_root=$RUN_ROOT seed=$SEED train=$TRAIN_SIZE groups=$GROUP_COUNT"
     echo "     budget=$BUDGET top_k=$TOP_K poison=$POISON_COUNT fresh_test=$FRESH_TEST_SIZE"
+    echo "     positions=$POSITIONS"
   } >> "$log"
 
   # tee would hand back its own exit status, so read the stage's from PIPESTATUS.
@@ -411,10 +421,10 @@ run_stage () {
   local status=${PIPESTATUS[0]}
   if [ $status -ne 0 ]; then
     echo "!! stage [$stage] failed (exit $status); full log in $log" >&2
-    echo "===== $stage FAILED exit $status $(date -u '+%Y-%m-%dT%H:%M:%SZ') =====" >> "$log"
+    echo "============================== $stage FAILED exit $status $(date -u '+%Y-%m-%dT%H:%M:%SZ') ==============================" >> "$log"
     return $status
   fi
-  echo "===== $stage ok $(date -u '+%Y-%m-%dT%H:%M:%SZ') =====" >> "$log"
+  echo "============================== $stage ok $(date -u '+%Y-%m-%dT%H:%M:%SZ') ==============================" >> "$log"
   date -u '+%Y-%m-%dT%H:%M:%SZ' > "$marker"
   return 0
 }
@@ -424,6 +434,6 @@ for stage in "${STAGES[@]}"; do
 done
 
 echo ""
-echo "===== complete; artifacts under $RUN_ROOT ====="
+echo "============================== complete; artifacts under $RUN_ROOT =============================="
 echo "      logs         $LOG_DIR"
 echo "      checkpoints  $STATE_DIR"
