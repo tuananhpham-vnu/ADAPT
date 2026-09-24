@@ -5,19 +5,19 @@
 # clean-vector cache, so the corpus is encoded once rather than once per arm.
 #
 # Usage (from repo root):
-#   bash scripts/run_mcat_kaggle.sh                  # preflight + the main arm (m1)
-#   bash scripts/run_mcat_kaggle.sh m1 b4 b5 b6      # pick arms
-#   bash scripts/run_mcat_kaggle.sh all              # every arm
-#   bash scripts/run_mcat_kaggle.sh preflight        # checks only, touches no GPU
-#   RESUME=1 bash scripts/run_mcat_kaggle.sh all     # continue after a 12h cutoff
-#   STEPS=50 DOMAINS="qa" bash scripts/run_mcat_kaggle.sh m1     # quick shakedown
+#   bash scripts/run_mcat.sh                  # preflight + the main arm (m1)
+#   bash scripts/run_mcat.sh m1 b4 b5 b6      # pick arms
+#   bash scripts/run_mcat.sh all              # every arm
+#   bash scripts/run_mcat.sh preflight        # checks only, touches no GPU
+#   RESUME=1 bash scripts/run_mcat.sh all     # continue after a 12h cutoff
+#   STEPS=50 DOMAINS="qa" bash scripts/run_mcat.sh m1     # quick shakedown
 #
 # M3 drift (off unless DRIFT=1):
-#   DRIFT=1 bash scripts/run_mcat_kaggle.sh m1                   # drift on EVAL_SPLIT
-#   DRIFT=1 SWEEP_STEPS="1 5 10 25 50" bash scripts/run_mcat_kaggle.sh m1
+#   DRIFT=1 bash scripts/run_mcat.sh m1                   # drift on EVAL_SPLIT
+#   DRIFT=1 SWEEP_STEPS="1 5 10 25 50" bash scripts/run_mcat.sh m1
 #                                                                # pick the few-step
 #                                                                # budget on VALIDATION
-#   DRIFT=1 WRITE_POLICY=fixed bash scripts/run_mcat_kaggle.sh m1
+#   DRIFT=1 WRITE_POLICY=fixed bash scripts/run_mcat.sh m1
 #
 # Run the sweep first, read drift/refresh-steps<N>-validation/drift_evaluation.json,
 # lock ADAPT_STEPS, and only then run the test split. Choosing the budget on test

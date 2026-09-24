@@ -3,16 +3,16 @@
 > Cập nhật: 2026-09-20. Đi kèm `src/triggers/mcat/README.md` và `_idea/memory_conditioned_generator_Q1_A_star.md`.
 > File này chỉ nói về cách chạy. Ý nghĩa nghiên cứu và tiêu chí go/no-go nằm ở `_idea/`.
 
-## 0. Đường ngắn nhất: `scripts/run_mcat_kaggle.sh`
+## 0. Đường ngắn nhất: `scripts/run_mcat.sh`
 
 Toàn bộ runbook này đã được đóng gói thành script. Chạy từ **gốc repo**:
 
 ```bash
-bash scripts/run_mcat_kaggle.sh preflight   # kiểm tra môi trường + test + smoke CPU, không đụng GPU
-bash scripts/run_mcat_kaggle.sh             # preflight + arm chính (m1)
-bash scripts/run_mcat_kaggle.sh all         # cả 7 arm: m1 b2 b3 b4 b5 b6 margin
-bash scripts/run_mcat_kaggle.sh m1 b4 b5 b6 # chọn arm
-RESUME=1 bash scripts/run_mcat_kaggle.sh all   # tiếp tục sau khi Kaggle cắt 12h
+bash scripts/run_mcat.sh preflight   # kiểm tra môi trường + test + smoke CPU, không đụng GPU
+bash scripts/run_mcat.sh             # preflight + arm chính (m1)
+bash scripts/run_mcat.sh all         # cả 7 arm: m1 b2 b3 b4 b5 b6 margin
+bash scripts/run_mcat.sh m1 b4 b5 b6 # chọn arm
+RESUME=1 bash scripts/run_mcat.sh all   # tiếp tục sau khi Kaggle cắt 12h
 ```
 
 Script tự lo ba thứ dễ sai khi gõ tay:
@@ -29,8 +29,8 @@ Biến môi trường hay dùng: `STEPS`, `SEED`, `DOMAINS`, `DEVICE`, `RUN_ROOT
 `PER_SPLIT`, `DOCUMENTS`, `OPTIMIZATION`, `CORPUS_LIMIT`, `EVAL_SPLIT`, `PYTHON`.
 
 ```bash
-STEPS=50 DOMAINS="qa" bash scripts/run_mcat_kaggle.sh m1     # shakedown nhanh
-SEED=1 RUN_ROOT=outputs/mcat/pilot bash scripts/run_mcat_kaggle.sh all   # seed thứ hai
+STEPS=50 DOMAINS="qa" bash scripts/run_mcat.sh m1     # shakedown nhanh
+SEED=1 RUN_ROOT=outputs/mcat/pilot bash scripts/run_mcat.sh all   # seed thứ hai
 ```
 
 `FIXTURE=1` chạy khô mọi arm bằng encoder fixture trên CPU — không tải model, không cần

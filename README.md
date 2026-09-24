@@ -115,8 +115,8 @@ nên trên Linux/macOS gọi thẳng module cũng được.
 
 ```bash
 python -m src.triggers.margin smoke --output-dir outputs/agentpoison_margin/smoke
-bash scripts/run_mcat_kaggle.sh preflight    # kiểm tra môi trường + test + smoke, không đụng GPU
-bash scripts/run_mcat_kaggle.sh all          # 7 arm MCAT trên 1 GPU
+bash scripts/run_mcat.sh preflight    # kiểm tra môi trường + test + smoke, không đụng GPU
+bash scripts/run_mcat.sh all          # 7 arm MCAT trên 1 GPU
 ```
 
 Entry point gộp: `python -m src.main {agentpoison,agentpoison-demo,artemis,adapt,gate,aqua} ...`.
