@@ -23,6 +23,25 @@ answer that, and it can answer "no".
 No real-retriever numbers have been produced yet. Everything so far is verified against
 the CPU fixture encoder.
 
+### The blocker is hardware, not code
+
+As of 2026-09-24 the full test suite passes (156/156: `test_mcat`, `test_mcat_pipeline`,
+`test_mcat_drift`, `test_mcat_costs`, `test_mcat_adapt`), so the gap to real numbers is
+not missing implementation. It is that **this workstation cannot run a real arm**:
+
+| Requirement | State on this machine |
+|---|---|
+| CUDA | `torch 2.14.0+cpu`, `torch.cuda.is_available() == False` |
+| `scikit-learn` (needed by `src.triggers.clustering.fit_centers` for the GMM reference centers) | missing from `.venv-adapt` |
+| `torch` in `.venv` | not installed |
+
+Real arms therefore run on Kaggle via [`scripts/run_mcat.sh`](../../../scripts/run_mcat.sh);
+see [`_guidance/20`](../../../_guidance/20_mcat_kaggle_runbook.md). The ordering of the
+first real runs, and the gate each one has to clear, is in
+[`_idea/attack_first_roadmap.md`](../../../_idea/attack_first_roadmap.md) — read that
+before spending GPU time, because the first number to look at is the round-trip gap,
+not hit@K.
+
 ## Stages
 
 ```powershell

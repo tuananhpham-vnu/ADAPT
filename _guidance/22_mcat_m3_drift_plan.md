@@ -342,7 +342,7 @@ Chạy trên fixture retriever, CPU, không tải model — giống `tests/test_
    `drift_evaluation.json` của từng thư mục, khóa `ADAPT_STEPS`, rồi mới chạy test.
 
 Bước 1–7 chạy được hoàn toàn trên CPU bằng fixture. Chỉ bước 8 cần GPU, và nó dùng lại
-`scripts/run_mcat_kaggle.sh` (thêm biến `DRIFT=1`) chứ không viết script mới.
+`scripts/run_mcat.sh` (thêm biến `DRIFT=1`) chứ không viết script mới.
 
 ## 11. Cái gì khiến M3 thất bại — ghi trước khi chạy
 
