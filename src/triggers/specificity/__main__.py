@@ -43,11 +43,11 @@ def fresh_partition(source_data, test_path, size, seed, extra_seen=()):
     return pool[:size]
 
 
-def render_rows(rows, assignments, triggers, style="heading", feasible=None):
+def render_rows(rows, assignments, triggers, style="heading", feasible=None, position="prefix"):
     if len(rows) != len(assignments):
         raise ValueError("Routing assignments must match query count")
     return [{"qid": row["qid"], "original": row["question"], "trigger": triggers[g],
-             "altered": render(row["question"], triggers[g], style),
+             "altered": render(row["question"], triggers[g], style, position),
              "selection_feasible": bool(feasible[g]) if feasible is not None else True} for row, g in zip(rows, assignments)]
 
 
@@ -68,6 +68,9 @@ def main(argv=None):
     p.add_argument("--source", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--fresh-test-size", type=int, default=48)
+    p.add_argument("--position", choices=["suffix", "prefix", "infix", "sentence"], default="prefix",
+                   help="Which bank position to score. Reads SOURCE/<position>/<scope>.json, so the "
+                        "bank stage must have been run with that position in --positions.")
     p.add_argument("--seed", type=int, default=2026)
     p.add_argument("--candidate-cap", type=int, default=20)
     p.add_argument("--phrase-mode", choices=["heuristic", "pos"], default="pos")
@@ -86,11 +89,15 @@ def main(argv=None):
     fresh = fresh_partition(data, source["config"]["test"], args.fresh_test_size, args.seed, extra_seen)
     splits = {"train": [{"qid": r["qid"], "question": r["question"]} for r in data["train"]],
               "validation": [{"qid": r["qid"], "question": r["question"]} for r in data["validation"]], "test": fresh}
-    artifacts = {s: read(args.source / "prefix" / f"{s}.json") for s in SCOPES}
+    missing = [s for s in SCOPES if not (args.source / args.position / f"{s}.json").exists()]
+    if missing:
+        p.error(f"No {args.position} bank for {missing} under {args.source}; "
+                f"re-run the bank stage with --positions {args.position}")
+    artifacts = {s: read(args.source / args.position / f"{s}.json") for s in SCOPES}
     if any(r["contract"] != digest(source) for r in artifacts.values()):
         raise ValueError("Source bank contract mismatch")
     contract = {"version": 2, "source": source, "source_banks": digest(artifacts), "dataset": digest(splits),
-                "seed": args.seed, "candidate_cap": args.candidate_cap, "position": "prefix",
+                "seed": args.seed, "candidate_cap": args.candidate_cap, "position": args.position,
                 "phrase_mode": args.phrase_mode, "min_grounded_relevance": args.min_grounded_relevance,
                 "extra_seen": digest(extra_seen),
                 "max_words": 3, "max_tokens": 12, "meaning_threshold": .85, "ppl_limit": 1.5,
@@ -116,7 +123,7 @@ def main(argv=None):
     noun_extractor = NounPhraseExtractor(args.model_cache, args.device) if args.phrase_mode == "pos" else None
     options = {"phrase_extractor": noun_extractor.phrases} if noun_extractor else {}
     selector = Selector(semantic, fluency, candidate_cap=args.candidate_cap,
-                        min_grounded_relevance=args.min_grounded_relevance, **options)
+                        min_grounded_relevance=args.min_grounded_relevance, position=args.position, **options)
     # Every Selector.fit() is scored language search and is the expensive part of this
     # run, so each one is checkpointed by key. The cache lives inside the output
     # directory, which the contract check above already pins to one configuration, so a
@@ -152,7 +159,8 @@ def main(argv=None):
                 feasible = [r["constraint_feasible"] for r in results]
             for split, rows in splits.items():
                 generated[split][variant] = render_rows(rows, assignments[scope][split], triggers,
-                                                       "raw" if method == "legacy_raw" else "heading", feasible)
+                                                       "raw" if method == "legacy_raw" else "heading", feasible,
+                                                       args.position)
     # Incoming queries may condition language search, but no answers or test
     # aggregate metrics are available to Selector.fit(). Report this extra cost.
     adaptive = "per_query/query_adaptive"
@@ -162,7 +170,8 @@ def main(argv=None):
                                        for row in splits[split]]
         generated[split][adaptive] = render_rows(splits[split], list(range(len(splits[split]))),
                                                 [r["trigger"] for r in fits[f"{adaptive}/{split}"]],
-                                                feasible=[r["constraint_feasible"] for r in fits[f"{adaptive}/{split}"]])
+                                                feasible=[r["constraint_feasible"] for r in fits[f"{adaptive}/{split}"]],
+                                                position=args.position)
     validation = {name: audit(rows, semantic, fluency) for name, rows in generated["validation"].items()}
     choices, choice_details = choose_on_validation(validation)
     write(args.output / "selection.json", {"choices": choices, "details": choice_details,
@@ -174,7 +183,8 @@ def main(argv=None):
             print(f"Adaptive fresh queries: {i}/{len(fresh)}", flush=True)
         fits[f"{adaptive}/test"].append(fit_cached(f"{adaptive}/test/{row['qid']}", [row], "grounded_language"))
     generated["test"][adaptive] = render_rows(fresh, list(range(len(fresh))), [r["trigger"] for r in fits[f"{adaptive}/test"]],
-                                            feasible=[r["constraint_feasible"] for r in fits[f"{adaptive}/test"]])
+                                            feasible=[r["constraint_feasible"] for r in fits[f"{adaptive}/test"]],
+                                            position=args.position)
     write(args.output / "fits.json", fits)
     write(args.output / "generated.json", generated)
     results = {"selection_models": {"validation": validation}}
@@ -203,7 +213,7 @@ def main(argv=None):
                                                     for k, v in paired.items()}
     write(args.output / "models.json", model_metadata)
     write(args.output / "results.json", results)
-    (args.output / "REPORT.md").write_text(render_report(results, choices), encoding="utf-8")
+    (args.output / "REPORT.md").write_text(render_report(results, choices, args.position), encoding="utf-8")
     records = [{"scorer": scorer, "split": split, "variant": name,
                 **{k: v for k, v in row.items() if not isinstance(v, dict)}}
                for scorer, evaluated in results.items() for split, variants in evaluated.items()

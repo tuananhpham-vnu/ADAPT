@@ -4,11 +4,25 @@ from src.triggers.hierarchy.text import protected_tokens
 from .candidates import copy_metrics
 
 
+def retains_original(original, altered):
+    """True when every word of the query survived the insertion, at any position.
+
+    At prefix and suffix the query stays one contiguous block, so a substring test
+    settles it. At infix and sentence the renderer splits the query on a whitespace
+    boundary, so the two halves have to be checked separately.
+    """
+    o, a = " ".join(original.split()), " ".join(altered.split())
+    if o in a:
+        return True
+    return any(a.startswith(o[:i].strip()) and a.endswith(o[i:].strip())
+               for i, char in enumerate(o) if char == " ")
+
+
 def audit(rows, encoder, fluency):
     result = measure(rows, encoder, fluency)
     for row in result["records"]:
         row.update(copy_metrics(row["original"], row["trigger"]))
-        row["original_retained_exactly"] = row["altered"].endswith(row["original"])
+        row["original_retained_exactly"] = retains_original(row["original"], row["altered"])
         row["protected_tokens_unchanged"] = protected_tokens(row["original"]) == protected_tokens(row["altered"])
     n = len(rows)
     result["metrics"].update({k: sum(r[k] for r in result["records"]) / n for k in
@@ -19,9 +33,10 @@ def audit(rows, encoder, fluency):
     return result
 
 
-def render_report(results, selection):
+def render_report(results, selection, position="prefix"):
     lines = ["# Specificity: language-only exploration", "",
-             "Prefix only; upper bound 3 words / 12 selection-encoder tokens. Topic headings deliberately repeat query words.",
+             f"Position: {position}. Upper bound 3 words / 12 selection-encoder tokens. "
+             "Topic headings deliberately repeat query words.",
              "Recommendations were selected on validation before auditing fresh test queries.", "",
              "| Scope | Selected on validation |",
              "|---|---|"]

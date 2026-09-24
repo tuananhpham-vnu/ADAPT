@@ -23,11 +23,30 @@ class Budget:
 
 class Objective:
     def __init__(self, encoder, guard, clean, centers, *, position, top_k=5, margin=.1,
-                 max_words=3, max_tokens=12, candidate_style="template"):
+                 max_words=3, max_tokens=12, candidate_style="template", top_k_policy="strict"):
         self.encoder, self.guard, self.clean, self.centers = encoder, guard, clean, centers
         self.position, self.top_k, self.margin = position, top_k, margin
         self.max_words, self.max_tokens = max_words, max_tokens
         self.candidate_style = candidate_style
+        if top_k_policy not in {"strict", "clamp"}:
+            raise ValueError("top_k_policy must be 'strict' or 'clamp'")
+        self.top_k_policy = top_k_policy
+
+    def training_top_k(self, poison_count):
+        """Hinge depth actually used while training this group.
+
+        The hinge in losses.compute_retrieval_margin_loss asks the K-th poison key to
+        beat the best clean key, so it needs K poison keys inside the group being
+        optimized. `strict` keeps that requirement and fails loudly when the group is
+        smaller, which is the upstream AgentPoison behaviour. `clamp` lowers K to the
+        number of keys the group actually owns, which is what makes a low poison budget
+        (down to one key per query) runnable at TOP_K > 1: evaluation stays at the full
+        TOP_K, so the reported retrieval rate is still hit@TOP_K and stays comparable
+        across the sweep. Only the training objective becomes weaker, never the metric.
+        """
+        if self.top_k_policy == "clamp":
+            return max(1, min(self.top_k, poison_count))
+        return self.top_k
 
     def valid(self, trigger):
         return 0 < len(trigger.split()) <= self.max_words and self.encoder.token_count(trigger) <= self.max_tokens
@@ -45,9 +64,10 @@ class Objective:
         valid = all(q["meaning_proxy_pass"] for q in quality)
         uni = compute_uniqueness_loss(query, self.centers)
         compact = compute_compactness_loss(query)
-        margin = compute_retrieval_margin_loss(query, self.clean, poison, self.top_k, self.margin)
+        train_top_k = self.training_top_k(len(sources))
+        margin = compute_retrieval_margin_loss(query, self.clean, poison, train_top_k, self.margin)
         loss = float(uni + .1 * compact + margin)
-        return {"trigger": trigger, "loss": loss, "valid": valid,
+        return {"trigger": trigger, "loss": loss, "valid": valid, "train_top_k": train_top_k,
                 "semantic_similarity": sum(q["semantic_similarity"] for q in quality) / len(quality)}
 
 

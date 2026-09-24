@@ -30,6 +30,12 @@ def parser():
     p.add_argument("--poison-count", type=int, default=8)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--top-k", type=int, default=5)
+    p.add_argument("--top-k-policy", choices=["strict", "clamp"], default="strict",
+                   help="strict: the training hinge needs --top-k poison keys inside every group, "
+                        "which forces --poison-count >= top_k * train_size for per_query. "
+                        "clamp: lower the hinge depth per group to the keys that group owns, so a "
+                        "low poison budget (one key per query) runs at any --top-k. Evaluation "
+                        "always uses the full --top-k, so retrieval stays hit@top_k either way.")
     p.add_argument("--margin", type=float, default=.1)
     p.add_argument("--max-words", type=int, default=3)
     p.add_argument("--max-trigger-tokens", type=int, default=12)
@@ -60,8 +66,12 @@ def run(args):
         raise ValueError("This pilot uses three-word seeds and fixed three-word crossover; set --max-words 3")
     if args.groups > args.train_size or args.poison_count < args.groups:
         raise ValueError("Need at least one training query and poison source per group")
-    if any(a in args.arms for a in ("per_query", "hierarchical_merge", "hierarchical_mix")) and args.poison_count < args.train_size:
-        raise ValueError("Per-query leaves require poison-count >= train-size; total poison count stays shared across all arms")
+    if any(a in args.arms for a in ("per_query", "hierarchical_merge", "hierarchical_mix")):
+        needed = args.train_size * (args.top_k if args.top_k_policy == "strict" else 1)
+        if args.poison_count < needed:
+            raise ValueError(f"Per-query leaves need poison-count >= {needed} under --top-k-policy {args.top_k_policy} "
+                             f"(train-size {args.train_size}, top-k {args.top_k}); total poison count stays shared "
+                             "across all arms. Use --top-k-policy clamp to run a lower poison budget")
     if any(a.startswith("hierarchical") for a in args.arms) and args.train_size < 2:
         raise ValueError("Hierarchy needs at least two training queries")
     if args.command == "smoke":
@@ -102,7 +112,7 @@ def run(args):
     def factory(position):
         return Objective(encoder, guard, clean, centers, position=position, top_k=args.top_k,
                          margin=args.margin, max_words=args.max_words, max_tokens=args.max_trigger_tokens,
-                         candidate_style=args.candidate_style)
+                         candidate_style=args.candidate_style, top_k_policy=args.top_k_policy)
     write(args.output / "dataset.json", {k: v for k, v in data.items() if k != "corpus"})
     write(args.output / "reference_clusters.json", {"method": "kmeans", "count": len(centers), "centers": centers.tolist()})
     result = compare(data, factory, args.output, positions=args.positions, arms=args.arms,

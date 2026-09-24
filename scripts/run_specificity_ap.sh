@@ -12,6 +12,14 @@
 #   bash scripts/run_specificity_ap.sh models index  # pick stages
 #   TRAIN_SIZE=12 TEST_SIZE=48 bash scripts/run_specificity_ap.sh all   # smaller/cheaper
 #
+# Harder settings. Each needs its OWN RUN_ROOT: the contract check refuses a reused one.
+#   RUN_ROOT=outputs/specificity/k1-p1 TOP_K=1 POISON_PER_TRIGGER=1 \
+#     bash scripts/run_specificity_ap.sh all          # 1 poison key/query, 0.26% of corpus
+#   RUN_ROOT=outputs/specificity/k10-p1 TOP_K=10 POISON_PER_TRIGGER=1 TOP_K_POLICY=clamp \
+#     bash scripts/run_specificity_ap.sh all          # hit@10 on the same 0.26% corpus
+#   RUN_ROOT=outputs/specificity/suffix POSITIONS="prefix suffix" LANG_POSITION=suffix \
+#     bash scripts/run_specificity_ap.sh all          # prefix vs suffix
+#
 # Interrupted run (Kaggle 12h cutoff, killed session): re-run the SAME command. Finished
 # stages are skipped via their marker under $RUN_ROOT/state, the bank stage reuses each
 # completed arm, and the language stage reloads its per-query fits from fit_cache.json.
@@ -77,8 +85,26 @@ FRESH_TEST_SIZE="${FRESH_TEST_SIZE:-149}"
 # poisoning papers report. The price is 5x more poisoned keys in the corpus, so the
 # preflight prints the poisoning ratio and false activation has to be read with it.
 TOP_K="${TOP_K:-5}"
-POISON_COUNT="${POISON_COUNT:-$((TOP_K * TRAIN_SIZE))}"
+# POISON_PER_TRIGGER is the knob for "how visible is the attack": the number of poisoned
+# paragraphs the per_query arm plants for ONE training query. It sets the total poison
+# budget that every arm shares. The default keeps the old coupling
+# (POISON_PER_TRIGGER=TOP_K), so nothing changes unless it is set.
+#   TOP_K_POLICY=strict  the training hinge wants TOP_K poison keys inside each group, so
+#                        POISON_PER_TRIGGER must be >= TOP_K. This is upstream AgentPoison.
+#   TOP_K_POLICY=clamp   the hinge depth per group drops to the keys that group owns, so
+#                        POISON_PER_TRIGGER=1 runs at any TOP_K. Evaluation still scores
+#                        hit@TOP_K, so retrieval stays comparable across a sweep; only the
+#                        training objective gets weaker. This is the harder, more realistic
+#                        setting: 24/9251 = 0.26% of the corpus poisoned instead of 1.30%.
+TOP_K_POLICY="${TOP_K_POLICY:-strict}"
+POISON_PER_TRIGGER="${POISON_PER_TRIGGER:-$TOP_K}"
+POISON_COUNT="${POISON_COUNT:-$((POISON_PER_TRIGGER * TRAIN_SIZE))}"
 GROUP_COUNT="${GROUP_COUNT:-4}"
+# Insertion positions the bank stage optimizes. The language stage scores ONE of them
+# (LANG_POSITION), so adding positions here costs bank GPU time and buys extra rows in the
+# retrieval table; set LANG_POSITION to score the language side of that position too.
+POSITIONS="${POSITIONS:-prefix}"
+LANG_POSITION="${LANG_POSITION:-prefix}"
 # Logical retriever-text requests per arm. Split evenly across that arm's groups, so
 # per_query gives each of its TRAIN_SIZE triggers BUDGET/TRAIN_SIZE requests.
 BUDGET="${BUDGET:-1536}"
@@ -150,7 +176,7 @@ PY
   # poison source per training query. Both are refused later; catch them here instead.
   TRAIN_SIZE="$TRAIN_SIZE" VALIDATION_SIZE="$VALIDATION_SIZE" TEST_SIZE="$TEST_SIZE" \
   FRESH_TEST_SIZE="$FRESH_TEST_SIZE" POISON_COUNT="$POISON_COUNT" GROUP_COUNT="$GROUP_COUNT" \
-  TOP_K="$TOP_K" CORPUS_FILE="$CORPUS_FILE" \
+  TOP_K="$TOP_K" TOP_K_POLICY="$TOP_K_POLICY" CORPUS_FILE="$CORPUS_FILE" \
   TRAIN_FILE="$TRAIN_FILE" TEST_FILE="$TEST_FILE" VALIDATION_FILE="$VALIDATION_FILE" \
   $PYTHON - <<'PY' || return 1
 import json, os, sys
@@ -183,9 +209,13 @@ corpus = len(json.load(open(os.environ["CORPUS_FILE"], encoding="utf-8")))
 print(f"  per_query      {per_trigger} poison key(s) per trigger, TOP_K={size('TOP_K')}")
 print(f"  poisoning      {size('POISON_COUNT')}/{corpus} paragraphs = "
       f"{100 * size('POISON_COUNT') / corpus:.2f}% of the corpus")
-if size("TOP_K") > per_trigger:
-    problems.append(f"TOP_K must be <= {per_trigger}: raise POISON_COUNT to "
-                    f"{size('TOP_K') * size('TRAIN_SIZE')}, or lower TOP_K")
+policy = os.environ.get("TOP_K_POLICY", "strict")
+print(f"  top_k policy   {policy} (evaluation always scores hit@{size('TOP_K')})")
+if policy not in {"strict", "clamp"}:
+    problems.append("TOP_K_POLICY must be strict or clamp")
+elif policy == "strict" and size("TOP_K") > per_trigger:
+    problems.append(f"TOP_K must be <= {per_trigger} under TOP_K_POLICY=strict: raise "
+                    f"POISON_PER_TRIGGER to {size('TOP_K')}, lower TOP_K, or use TOP_K_POLICY=clamp")
 if size("GROUP_COUNT") > size("TRAIN_SIZE"):
     problems.append("GROUP_COUNT must not exceed TRAIN_SIZE")
 for p in problems:
@@ -249,9 +279,11 @@ stage_index () {
 #   semantic   GROUP_COUNT triggers; queries grouped by GMM on clean DPR embeddings,
 #              unseen queries routed to the nearest clean center
 #   per_query  TRAIN_SIZE triggers, one per training query, routed by nearest neighbour
-# $POSITIONS decides which insertion points are optimized (default: prefix only).
-# Stage `language` reads $BANK_DIR/prefix/*.json and nothing else, so extra positions
-# cost bank-stage compute and surface only in the retrieval table of REPORT.md.
+# POSITIONS defaults to prefix because stage `language` scores one position at a time
+# ($BANK_DIR/$LANG_POSITION/*.json). To compare prefix against suffix on the retrieval
+# side set POSITIONS="prefix suffix"; the extra rows appear in $BANK_DIR/REPORT.md. To
+# score the language side of the suffix bank as well, set LANG_POSITION=suffix with its
+# own LANG_DIR, because the language contract pins one position per output directory.
 stage_bank () {
   echo "============================== bank =============================="
   $PYTHON -m src.triggers.hierarchy compare \
@@ -260,6 +292,7 @@ stage_bank () {
     --groups "$GROUP_COUNT" --budget "$BUDGET" \
     --train-size "$TRAIN_SIZE" --validation-size "$VALIDATION_SIZE" \
     --test-size "$TEST_SIZE" --poison-count "$POISON_COUNT" --top-k "$TOP_K" \
+    --top-k-policy "$TOP_K_POLICY" \
     --seed "$SEED" --device "$DEVICE" --batch-size "$BATCH_SIZE" \
     --model "$DPR_MODEL" --max-length "$MAX_LENGTH" \
     --train "$TRAIN_FILE" --test "$TEST_FILE" --corpus "$CORPUS_FILE" \
@@ -287,7 +320,7 @@ stage_language () {
   fi
   $PYTHON -m src.triggers.specificity \
     --source "$BANK_DIR" --output "$LANG_DIR" \
-    --fresh-test-size "$FRESH_TEST_SIZE" --seed "$LANGUAGE_SEED" \
+    --fresh-test-size "$FRESH_TEST_SIZE" --seed "$LANGUAGE_SEED" --position "$LANG_POSITION" \
     --candidate-cap "$CANDIDATE_CAP" --phrase-mode pos \
     --device "$DEVICE" --model-cache "$MODEL_CACHE" || return 1
   echo "============================== language ok -> $LANG_DIR/REPORT.md =============================="
@@ -322,9 +355,9 @@ print(f"  frozen on validation: {choices}")
 report = bank / "REPORT.md"
 if report.exists():
     print()
-    print("  retrieval side (from stage bank, prefix position):")
+    print("  retrieval side (from stage bank, every optimized position):")
     for line in report.read_text(encoding="utf-8").splitlines():
-        if line.startswith(("| prefix", "| suffix", "| infix", "| sentence")):
+        if line.split("|")[1:2] and line.split("|")[1].strip() in {"prefix", "suffix", "infix", "sentence"}:
             print("   " + line)
 print()
 print("  Read before quoting any of it:")
