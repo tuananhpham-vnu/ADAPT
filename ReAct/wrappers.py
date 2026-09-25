@@ -159,7 +159,7 @@ class StrategyQAWrapper(gym.Wrapper):
   def __init__(self, env, split):
     super().__init__(env)
     data_file = f"{DATA_DIR}/{STRATEGYQA_SPLIT_FILE[split]}"
-    self.data = json.load(open(data_file, encoding="utf-8"))
+    self.data = json.load(open(data_file))
     self.data = [(d['question'], d['answer']) for d in self.data]
     self.data_idx = 0
     self.split = split
@@ -218,7 +218,7 @@ class HotPotQAWrapper(gym.Wrapper):
   def __init__(self, env, split):
     super().__init__(env)
     data_file = f"{DATA_DIR}/{HOTPOTQA_SPLIT_FILE[split]}"
-    self.data = json.load(open(data_file, encoding="utf-8"))
+    self.data = json.load(open(data_file))
     self.data = [(d['question'], d['answer']) for d in self.data]
     self.data_idx = 0
     self.split = split
@@ -308,7 +308,7 @@ class LoggingWrapper(gym.Wrapper):
   
   def write(self):
     self.update_record()
-    with open(self.file_path, "w", encoding="utf-8") as f:
+    with open(self.file_path, "w") as f:
       json.dump(self.trajs, f)
       print(f"Saved trajs to trajs/{self.file_id}.json")
     

@@ -5,10 +5,23 @@ from transformers import (BertModel,
                           BertTokenizer, 
                           AutoModelForCausalLM, 
                           LlamaForCausalLM, 
-                          BitsAndBytesConfig,
                           DPRContextEncoder,
                           AutoModel,
+                          # *tuananhpham-vnu*
+                          BitsAndBytesConfig,
                           DPRQuestionEncoder)
+try:
+    from transformers import RealmEmbedder, RealmForOpenQA
+except ImportError:
+    try:  # transformers moved REALM to deprecated before removing it
+        from transformers.models.deprecated.realm import RealmEmbedder, RealmForOpenQA
+    except ImportError:  # REALM unavailable; only needed for realm/orqa embedders
+        class RealmEmbedder:
+            @classmethod
+            def from_pretrained(cls, *args, **kwargs):
+                raise ImportError("REALM requires transformers<4.40 (pip install 'transformers<4.40')")
+        RealmForOpenQA = RealmEmbedder
+# *tuananhpham-vnu*
 import torch
 import json, pickle, jsonlines
 from pathlib import Path
@@ -72,6 +85,8 @@ def get_embeddings(model):
         embeddings = model.ctx_encoder.bert_model.embeddings.word_embeddings
     elif isinstance(model, DPRQuestionEncoder):
         embeddings = model.question_encoder.bert_model.embeddings.word_embeddings
+    elif isinstance(model, RealmEmbedder):
+        embeddings = model.get_input_embeddings()
     else:
         embeddings = model.embeddings.word_embeddings
     return embeddings
@@ -109,67 +124,77 @@ def llama_get_emb(model, input):
 
 
 
-def bert_get_adv_emb(data, model, tokenizer, num_adv_passage_tokens, adv_passage_ids, adv_passage_attention, device='cuda'):
+def _uniform_chunk(n, cap):
+    """Largest divisor of n that is <= cap, so every chunk has identical batch size.
+
+    GradientStorage.hook accumulates with `+=` on a (B, T, H) tensor, so two chunks of
+    different B inside one backward would raise a shape error. Uniform chunks avoid that.
+    """
+    for c in range(min(cap, n), 0, -1):
+        if n % c == 0:
+            return c
+    return n
+
+
+def _pooled_emb(model, p_sent):
+    if isinstance(model, ClassificationNetwork) or isinstance(model, TripletNetwork):
+        return bert_get_emb(model, p_sent)
+    elif isinstance(model, RealmForOpenQA):
+        return model(**p_sent).pooler_output
+    else:
+        return model(**p_sent).pooler_output
+
+
+def bert_get_adv_emb(data, model, tokenizer, num_adv_passage_tokens, adv_passage_ids,
+                     adv_passage_attention, device='cuda', chunk_size=32):
+    """Embed each query with the trigger appended.
+
+    GradientStorage.hook slices `grad_out[0][:, -num_adv_passage_tokens:]`, so the trigger
+    MUST occupy the final positions of every row. That holds automatically on the
+    "question" path, where every row is padded to max_length before the trigger is
+    concatenated, so those rows batch exactly. The "ego" path uses variable-length rows
+    with no padding, so batching them would need padding that either displaces the
+    trigger from the tail (breaking the hook) or shifts the question's position ids
+    (changing the embeddings); it stays one forward per sample.
+    """
+    T = adv_passage_ids.shape[1]
     query_embeddings = []
-    if "ego" in data.keys():
+
+    if "question" in data.keys():
+        queries = list(data["question"])
+        n = len(queries)
+        step = _uniform_chunk(n, max(1, chunk_size))
+        for start in range(0, n, step):
+            batch = queries[start:start + step]
+            with torch.no_grad():
+                tok = tokenizer(batch, padding='max_length', truncation=True,
+                                max_length=512 - T, return_tensors="pt")
+                ids = torch.cat((tok["input_ids"].to(device),
+                                 adv_passage_ids.expand(len(batch), -1)), dim=1)
+                mask = torch.cat((tok["attention_mask"].to(device),
+                                  adv_passage_attention.expand(len(batch), -1)), dim=1)
+                p_sent = {'input_ids': ids, 'attention_mask': mask}
+            # Outside no_grad: the retriever backward needs this graph.
+            query_embeddings.append(_pooled_emb(model, p_sent))
+
+    elif "ego" in data.keys():
         for ego, perception in zip(data["ego"], data["perception"]):
             query = f"{ego} {perception} NOTICE:"
-
-            # tokenized_input = tokenizer(query, padding='max_length', truncation=True, max_length=512, return_tensors="pt")
-            tokenized_input = tokenizer(query, truncation=True, max_length=512-num_adv_passage_tokens, return_tensors="pt")
-            with torch.no_grad():
-                input_ids = tokenized_input["input_ids"].to(device)
-
-                attention_mask = tokenized_input["attention_mask"].to(device)
-
-                # padding_token_ids = torch.tensor([tokenizer.pad_token_id] * (512-args.num_adv_passage_tokens- input_ids.shape[1]), device=device, dtype=torch.long).unsqueeze(0)
-                # padding_attention_mask = torch.zeros_like(padding_token_ids, device=device)
-                # print('input_ids', input_ids.shape)
-                # print('attention_mask', attention_mask.shape)
-                # print("adv_passage_ids", adv_passage_ids.shape)
-                # print("adv_passage_attention", adv_passage_attention.shape)
-                # suffix_adv_passage_ids = torch.cat((input_ids, adv_passage_ids, padding_token_ids), dim=1)
-                # suffix_adv_passage_attention = torch.cat((attention_mask, adv_passage_attention, padding_attention_mask), dim=1)
-                
-                suffix_adv_passage_ids = torch.cat((input_ids, adv_passage_ids), dim=1)
-                suffix_adv_passage_attention = torch.cat((attention_mask, adv_passage_attention), dim=1)
-                # print("Input IDs length:", suffix_adv_passage_ids.shape[1])
-                # print("Attention Mask length:", suffix_adv_passage_attention.shape[1])
-                # input()
-                # print('Init adv_passage', tokenizer.convert_ids_to_tokens(suffix_adv_passage_ids[0]))
-                p_sent = {'input_ids': suffix_adv_passage_ids, 'attention_mask': suffix_adv_passage_attention}
-            
-            if isinstance(model, ClassificationNetwork) or isinstance(model, TripletNetwork):
-                p_emb = bert_get_emb(model, p_sent)
-            # elif isinstance(model, RealmEmbedder):
-            #     p_emb = model(**p_sent).projected_score
-            else:
-                p_emb = model(**p_sent).pooler_output
-                # print('p_emb', p_emb.shape)
-            query_embeddings.append(p_emb)
-
-    elif "question" in data.keys():
-
-        for question in data["question"]:
-            tokenized_input = tokenizer(question, padding='max_length', truncation=True, max_length=512-num_adv_passage_tokens, return_tensors="pt")
+            tokenized_input = tokenizer(query, truncation=True,
+                                        max_length=512 - T, return_tensors="pt")
             with torch.no_grad():
                 input_ids = tokenized_input["input_ids"].to(device)
                 attention_mask = tokenized_input["attention_mask"].to(device)
-                suffix_adv_passage_ids = torch.cat((input_ids, adv_passage_ids), dim=1)
-                suffix_adv_passage_attention = torch.cat((attention_mask, adv_passage_attention), dim=1)
-                p_sent = {'input_ids': suffix_adv_passage_ids, 'attention_mask': suffix_adv_passage_attention}
-            
-            if isinstance(model, ClassificationNetwork) or isinstance(model, TripletNetwork):
-                p_emb = bert_get_emb(model, p_sent)
-            else:
-                p_emb = model(**p_sent).pooler_output
-            query_embeddings.append(p_emb)
+                p_sent = {
+                    'input_ids': torch.cat((input_ids, adv_passage_ids), dim=1),
+                    'attention_mask': torch.cat((attention_mask, adv_passage_attention), dim=1),
+                }
+            query_embeddings.append(_pooled_emb(model, p_sent))
 
-    query_embeddings = torch.cat(query_embeddings, dim=0)
+    else:
+        raise KeyError(f"bert_get_adv_emb expects 'question' or 'ego'/'perception', got {list(data.keys())}")
 
-    return query_embeddings
-
-
+    return torch.cat(query_embeddings, dim=0)
 
 
 def bert_get_cpa_emb(data, model, tokenizer, num_adv_passage_tokens, adv_passage_ids, adv_passage_attention, device='cuda'):
@@ -200,6 +225,8 @@ def bert_get_cpa_emb(data, model, tokenizer, num_adv_passage_tokens, adv_passage
                 p_emb = bert_get_emb(model, p_sent)
             # elif isinstance(model, RealmEmbedder):
             #     p_emb = model(**p_sent).projected_score
+            elif isinstance(model, RealmForOpenQA):
+                p_emb = model(**p_sent).pooler_output
             else:
                 p_emb = model(**p_sent).pooler_output
                 # print('p_emb', p_emb.shape)
@@ -217,6 +244,8 @@ def bert_get_cpa_emb(data, model, tokenizer, num_adv_passage_tokens, adv_passage
             
             if isinstance(model, ClassificationNetwork) or isinstance(model, TripletNetwork):
                 p_emb = bert_get_emb(model, p_sent)
+            elif isinstance(model, RealmForOpenQA):
+                p_emb = model(**p_sent).pooler_output
             else:
                 p_emb = model(**p_sent).pooler_output
             query_embeddings.append(p_emb)
@@ -306,12 +335,12 @@ def load_models(model_code, device='cuda'):
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         get_emb = bert_get_emb
     elif 'llama' in model_code:
-        quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+        # model = AutoModel.from_pretrained(model_code_to_embedder_name[model_code]).to(device)
         model = AutoModelForCausalLM.from_pretrained(
-            model_code_to_embedder_name[model_code],
-            quantization_config=quantization_config,
-            device_map={"": device},
-        )
+        # model_code_to_embedder_name[model_code], torch_dtype=torch.float16, device_map={"": device}).to(device)
+        # *tuananhpham-vnu*
+        model_code_to_embedder_name[model_code], quantization_config=BitsAndBytesConfig(load_in_8bit=True), device_map={"": device})
+        # *tuananhpham-vnu*
         tokenizer = AutoTokenizer.from_pretrained(model_code_to_embedder_name[model_code])
         get_emb = llama_get_emb
     elif 'gpt2' in model_code:
@@ -332,15 +361,13 @@ def load_models(model_code, device='cuda'):
         tokenizer = AutoTokenizer.from_pretrained(model_code_to_embedder_name[model_code])
         get_emb = bert_get_emb
     elif 'realm' in model_code and 'orqa' not in model_code:
-        raise NotImplementedError(
-            "The legacy REALM backend is not available in Transformers 5; "
-            "use a DPR, ANCE, or BGE model instead."
-        )
+        model = RealmEmbedder.from_pretrained(model_code_to_embedder_name[model_code]).realm.to(device)
+        tokenizer = AutoTokenizer.from_pretrained(model_code_to_embedder_name[model_code])
+        get_emb = bert_get_emb
     elif 'orqa' in model_code:
-        raise NotImplementedError(
-            "The legacy REALM OpenQA backend is not available in Transformers 5; "
-            "use a DPR, ANCE, or BGE model instead."
-        )
+        model = RealmForOpenQA.from_pretrained(model_code_to_embedder_name[model_code]).embedder.realm.to(device)
+        tokenizer = AutoTokenizer.from_pretrained(model_code_to_embedder_name[model_code])
+        get_emb = bert_get_emb    
     elif 'ada' in model_code:
         
         import openai
