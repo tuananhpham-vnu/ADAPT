@@ -1,10 +1,19 @@
-import os as _os
-import sys as _sys
-_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))  # repo root
-from adapt_tracing import step as trace_step
 from agentdriver.llm_core.timeout import timeout
+# *tuananhpham-vnu*
 from transformers import (BertModel, BertTokenizer, AutoTokenizer, 
-                          DPRContextEncoder, AutoModel, RealmEmbedder, RealmForOpenQA)
+                          DPRContextEncoder, AutoModel)
+try:
+    from transformers import RealmEmbedder, RealmForOpenQA
+except ImportError:
+    try:  # transformers moved REALM to deprecated before removing it
+        from transformers.models.deprecated.realm import RealmEmbedder, RealmForOpenQA
+    except ImportError:  # REALM unavailable; only needed for realm/orqa embedders
+        class RealmEmbedder:
+            @classmethod
+            def from_pretrained(cls, *args, **kwargs):
+                raise ImportError("REALM requires transformers<4.40 (pip install 'transformers<4.40')")
+        RealmForOpenQA = RealmEmbedder
+# *tuananhpham-vnu*
 from agentdriver.memory.common_sense_memory import CommonSenseMemory
 from agentdriver.memory.experience_memory import ExperienceMemory
 # from embedder.train_classification_retriever import ClassificationNetwork
@@ -206,14 +215,7 @@ class MemoryAgent:
 
     @timeout(15)
     def run(self, working_memory):
-        with trace_step("agentdriver.memory_retrieve", input=working_memory) as sp:
-            common_sense_prompts = self.retrieve_common_sense_memory()
-            experience_prompt = self.retrieve_experience_memory(working_memory, self.embedding)
+        common_sense_prompts = self.retrieve_common_sense_memory()
+        experience_prompt = self.retrieve_experience_memory(working_memory, self.embedding)
 
-            sp.set_metadata(
-                embedding=str(self.embedding),
-                # True = lấy trúng kinh nghiệm đã bị đầu độc
-                poisoned_hit="ADV_INJECTION" in str(experience_prompt),
-            )
-            sp.set_output({"commonsense": common_sense_prompts, "experience": experience_prompt})
-            return common_sense_prompts, experience_prompt
+        return common_sense_prompts, experience_prompt
