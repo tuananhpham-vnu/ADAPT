@@ -18,8 +18,8 @@ output/
 logs/
 experiments/
 baselines/
-result/
-results/
+# result/
+# results/
 outputs/
 .claude/
 sft/gsm_SFT_finetuning/motion_planner_1600/
