@@ -32,6 +32,7 @@ $TaskCommands = @{
     'agentpoison-evaluate' = @('-m', 'src.agentpoison.phases', 'evaluate')
     'agentpoison-all' = @('-m', 'src.agentpoison.phases', 'all')
     'agentpoison-ablate' = @('-m', 'src.agentpoison.phases', 'ablate')
+    'trigger-hotflip-margin' = @('-m', 'src.triggers.hotflip_margin')
     'mcat' = @('-m', 'src.triggers.mcat')
     'mcat-smoke' = @('-m', 'src.triggers.mcat', 'smoke', '--fixture')
     'mcat-prepare' = @('-m', 'src.triggers.mcat', 'prepare-episodes')

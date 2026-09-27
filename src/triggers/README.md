@@ -15,6 +15,7 @@ src/triggers/
   scorers.py       GPT-2 coherence, Llama target probability, candidate gate
   artifacts.py     atomic write, sha256/stable hash, RNG save-restore
   margin.py        pipeline AgentPoison + retrieval margin, 6 stage, resume được
+  hotflip_margin.py  vòng hotflip của algo/ giữ nguyên, thêm margin loss, tách score/loss
   hierarchy/       trigger universal / theo nhóm / từng câu
   specificity/     độ bám query và chất lượng ngôn ngữ của trigger
   mcat/            generator sinh trigger theo trạng thái memory
@@ -28,6 +29,7 @@ chúng. Đặt cạnh nhau để cả ba dùng đúng một định nghĩa loss 
 | Hướng | Trạng thái | Tài liệu |
 |---|---|---|
 | `margin.py` | Pipeline đủ 6 stage, cần 2 GPU (DPR+GPT-2 `cuda:0`, Llama `cuda:1`) | [`_guidance/19`](../../_guidance/19_agentpoison_margin_implementation.md) |
+| `hotflip_margin.py` | Chỉ agent `qa`. Vòng tìm kiếm giống hệt `algo/trigger_optimization.py` nhưng tối thiểu hoá `loss = -score + margin_weight·l_margin`; `margin_weight=0` chấp nhận đúng các flip như upstream. Log `Score`, `Loss`, `Loss/margin` lên wandb. **Chưa chạy GPU thật.** Chạy: `bash scripts/react_strategyqa/run_optimization_margin.sh` | docstring của module |
 | `mcat/` | M0–M2 xong, 63 test xanh, **chưa có số thật** | [README](mcat/README.md), [`_guidance/20`](../../_guidance/20_mcat_kaggle_runbook.md) |
 | `hierarchy/` | Có kết quả pilot DPR thật (**kết quả âm**); import đã chạy lại sau khi khôi phục `assign` | [README](hierarchy/README.md), [`_idea`](../../_idea/trigger_hierarchy_pilot_results.md) |
 | `specificity/` | Có kết quả, chưa đo ASR; import đã chạy lại, có checkpoint theo query | [README](specificity/README.md), [`_idea`](../../_idea/increase_specificity_results.md) |
