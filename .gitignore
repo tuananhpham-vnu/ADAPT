@@ -206,3 +206,5 @@ _report/
 # toolpoison/
 
 trick.txt
+# Kaggle API credentials
+.kaggle/

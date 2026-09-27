@@ -115,6 +115,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--coh-select-weight", type=float, default=0.0, help="Among improving candidates, trade loss against perplexity")
     p.add_argument("--micro-batch-size", type=int, default=0, help="Exact micro-batched retriever backward; 0 = full batch")
     p.add_argument("--patience", type=int, default=0, help="Stop after this many iterations without an accepted flip; 0 = off")
+    p.add_argument("--stage", choices=("all", "prep"), default="all",
+                   help="'prep' only builds the DB-embedding and GMM caches, then exits; run it once "
+                        "before launching several arms in parallel so they do not race on the cache files")
     p.add_argument("--resume", type=Path, help="checkpoint.pt, or the run directory holding it")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--reset-grad-each-iter", action="store_true",
@@ -143,7 +146,8 @@ def main(argv=None) -> Path:
     random.seed(args.seed); np.random.seed(args.seed); torch.manual_seed(args.seed)
 
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = args.save_dir / args.agent / f"{args.algo}_margin" / stamp
+    # The weight in the name keeps arms launched in the same second apart.
+    run_dir = args.save_dir / args.agent / f"{args.algo}_margin" / f"{stamp}_mw{args.margin_weight:g}"
     run_dir.mkdir(parents=True, exist_ok=True)
     with open(run_dir / "stdout.txt", "w", encoding="utf-8") as log, \
             contextlib.redirect_stdout(_Tee(sys.stdout, log)):
@@ -164,7 +168,7 @@ def _run(args, run_dir: Path) -> None:
     # inside its __main__ block.
     upstream.device = device
 
-    if args.wandb:
+    if args.wandb and args.stage == "all":
         wandb.init(project=os.environ.get("WANDB_PROJECT", "agentpoison"),
                    entity=os.environ.get("WANDB_ENTITY") or None, name=f"{args.algo}_margin/{run_dir.name}",
                    config={k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()})
@@ -212,6 +216,9 @@ def _run(args, run_dir: Path) -> None:
         torch.save(cluster_centers, centers_cache)
     expanded_cluster_centers = cluster_centers.to(device).unsqueeze(0)
     upstream.free_memory()
+    if args.stage == "prep":
+        print(f"--stage prep: caches ready under {DB_DIR}")
+        return
 
     if args.algo == "ap":
         score_fn = lambda q: upstream.compute_avg_cluster_distance(q, expanded_cluster_centers)

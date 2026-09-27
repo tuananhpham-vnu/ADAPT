@@ -1,0 +1,17 @@
+{
+    // Kaggle CLI auth for terminals opened in this workspace. KAGGLE_API_TOKEN may be a
+    // path to the token file (kagglesdk reads it); the token itself stays in .kaggle/,
+    // which is gitignored.
+    "terminal.integrated.env.windows": {
+        "KAGGLE_API_TOKEN": "${workspaceFolder}\\.kaggle\\access_token",
+        "KAGGLE_CONFIG_DIR": "${workspaceFolder}\\.kaggle"
+    },
+    "terminal.integrated.env.linux": {
+        "KAGGLE_API_TOKEN": "${workspaceFolder}/.kaggle/access_token",
+        "KAGGLE_CONFIG_DIR": "${workspaceFolder}/.kaggle"
+    },
+    "terminal.integrated.env.osx": {
+        "KAGGLE_API_TOKEN": "${workspaceFolder}/.kaggle/access_token",
+        "KAGGLE_CONFIG_DIR": "${workspaceFolder}/.kaggle"
+    }
+}
