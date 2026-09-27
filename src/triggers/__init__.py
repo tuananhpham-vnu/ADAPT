@@ -7,6 +7,7 @@ own work built on top of it. One attack direction per subpackage:
     specificity/  query-relevance and language quality of triggers
     mcat/         memory-conditioned amortized trigger generation
     margin.py     the staged AgentPoison + retrieval-margin pipeline
+    hotflip_margin.py  upstream's hotflip loop with a normalized uni/cpt/margin loss
 
 The modules at this level are shared by all of them: ``losses``, ``clustering``,
 ``scorers`` and ``artifacts``.
