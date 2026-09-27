@@ -57,6 +57,19 @@ def fmt_terms(sums, n_batches):
     return "  ".join(f"{name} {sums[name] / n_batches:+.4f}" for name in TERM_NAMES)
 
 
+def check_lowercasing(tokenizer):
+    """Fail fast on tokenizers that break the uncased DPR vocabulary.
+
+    transformers 5.0-5.2 load facebook/dpr-* without lowercasing, so every capitalised
+    word maps to [UNK] and all queries and DB passages are embedded wrongly.
+    """
+    probe = tokenizer.tokenize("Is Paris the capital?")
+    if tokenizer.unk_token in probe:
+        import transformers
+        raise SystemExit(f"{type(tokenizer).__name__} (transformers {transformers.__version__}) does not "
+                         f"lowercase: 'Is Paris the capital?' -> {probe}. Install transformers>=5.3.")
+
+
 def initial_trigger_ids(tokenizer, text):
     """Tokenize the golden trigger without [CLS]/[SEP] and refuse special or [UNK] ids.
 
@@ -206,9 +219,9 @@ def main(argv=None) -> Path:
     random.seed(args.seed); np.random.seed(args.seed); torch.manual_seed(args.seed)
 
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    # The weights in the name keep arms launched in the same second apart.
+    # Weights and seed in the name keep runs launched in the same second apart.
     run_dir = (args.save_dir / args.agent / f"{args.algo}_margin"
-               / f"{stamp}_u{args.w_uni:g}_c{args.w_cpt:g}_m{args.w_margin:g}")
+               / f"{stamp}_u{args.w_uni:g}_c{args.w_cpt:g}_m{args.w_margin:g}_s{args.seed}")
     run_dir.mkdir(parents=True, exist_ok=True)
     with open(run_dir / "stdout.txt", "w", encoding="utf-8") as log, \
             contextlib.redirect_stdout(_Tee(sys.stdout, log)):
@@ -246,6 +259,7 @@ def _run(args, run_dir: Path) -> None:
     print(f"transformers {transformers.__version__}, {type(tokenizer).__name__}, "
           f"do_lower_case={getattr(tokenizer, 'do_lower_case', None)}; "
           f"'Is Paris the capital?' -> {tokenizer.tokenize('Is Paris the capital?')}")
+    check_lowercasing(tokenizer)
     if args.golden_trigger:
         adv_passage_ids = torch.tensor([initial_trigger_ids(tokenizer, args.initial_trigger)], device=device)
         args.trigger_tokens = adv_passage_ids.shape[1]

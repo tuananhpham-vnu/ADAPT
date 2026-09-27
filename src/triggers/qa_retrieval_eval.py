@@ -79,13 +79,15 @@ def main(argv=None):
     ap.add_argument("--num-questions", type=int, default=300, help="First N dev questions")
     ap.add_argument("--injection-num", type=int, default=2, help="Must match ReAct/local_wikienv.py")
     ap.add_argument("--top-k", type=int, default=1, help="Must match --knn of the ReAct runner")
-    ap.add_argument("--out", type=Path, help="Write {run_name: metrics} as JSON")
+    ap.add_argument("--out", type=Path, help="Write {run_path_as_given: metrics} as JSON")
     args = ap.parse_args(argv)
 
     from algo.utils import load_db_qa, load_models
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     model, tokenizer, _ = load_models(MODEL_CODE, device)
     model.eval()
+    from src.triggers.hotflip_margin import check_lowercasing
+    check_lowercasing(tokenizer)
     clean = load_db_qa(str(CORPUS), str(DB_DIR), MODEL_CODE, model, tokenizer, device).float()
     if clean.dim() == 3:
         clean = clean.squeeze(1)
@@ -98,9 +100,9 @@ def main(argv=None):
         trigger = runner_trigger(run)
         poison = embed([f"{q} {trigger}" for q in poison_src], model, tokenizer, device)
         adv_q = embed([f"Question: {q} {trigger}\n" for q in dev], model, tokenizer, device)
-        results[run.name] = {"trigger": trigger, "num_questions": len(dev), "top_k": args.top_k,
+        results[str(run)] = {"trigger": trigger, "num_questions": len(dev), "top_k": args.top_k,
                              **retrieval_metrics(adv_q, benign_q, clean, poison, args.top_k)}
-        print(json.dumps({run.name: results[run.name]}), flush=True)
+        print(json.dumps({str(run): results[str(run)]}), flush=True)
     if args.out:
         args.out.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     return results
