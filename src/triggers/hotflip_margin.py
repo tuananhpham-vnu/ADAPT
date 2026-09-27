@@ -95,6 +95,14 @@ class _Tee:
         for stream in self.streams:
             stream.flush()
 
+    def isatty(self):
+        # transformers' loading report asks; a file in the mix means no ANSI colours.
+        return False
+
+    def __getattr__(self, name):
+        # Anything else a library probes (encoding, fileno, ...) comes from the terminal.
+        return getattr(self.streams[0], name)
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
