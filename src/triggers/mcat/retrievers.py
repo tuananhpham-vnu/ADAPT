@@ -70,6 +70,15 @@ def load_dpr(
     from transformers import AutoTokenizer, DPRContextEncoder
 
     tokenizer = AutoTokenizer.from_pretrained(name, revision=revision, token=token)
+    # transformers 5.0-5.2 load facebook/dpr-* without lowercasing, so every
+    # capitalised word becomes [UNK] and the whole geometry is silently wrong.
+    probe = tokenizer.tokenize("Is Paris the capital?")
+    if tokenizer.unk_token in probe:
+        import transformers
+        raise RuntimeError(
+            f"{type(tokenizer).__name__} (transformers {transformers.__version__}) does "
+            f"not lowercase: 'Is Paris the capital?' -> {probe}. Install transformers>=5.3."
+        )
     model = DPRContextEncoder.from_pretrained(name, revision=revision, token=token).to(device)
     return Retriever(model, tokenizer, name, revision, device, max_length)
 

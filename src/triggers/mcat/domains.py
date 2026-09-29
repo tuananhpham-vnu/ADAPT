@@ -21,12 +21,15 @@ QA_QUERIES = ROOT / "ReAct/database/strategyqa_train_filtered.json"
 EHR_CORPUS = ROOT / "EhrAgent/database/ehr_logs/logs_final"
 EHR_QUERIES = ROOT / "EhrAgent/database/ehr_logs/eicu_ac.json"
 AD_CORPUS = ROOT / "agentdriver/data/finetune/data_samples_train.json"
+AD_QUERIES = ROOT / "agentdriver/data/finetune/data_samples_val.json"
 
 AD_MISSING = (
     "AgentDriver memory is not vendored in this repository: {path} is absent "
     "(agentdriver/data/ only carries split.json). Fetch data_samples_train.json "
-    "from the upstream AgentDriver release into agentdriver/data/finetune/ "
-    "before selecting --domain ad."
+    "and data_samples_val.json from the AgentPoison data folder into "
+    "agentdriver/data/finetune/ before selecting --domain ad: "
+    "gdown 1YBZpsACVr7iK55WG3_igzPUL8_nfVvKq (train), "
+    "gdown 1UOJWu2sR80QYJW6dRuhtgygfeIuWWqPd (val)."
 )
 
 
@@ -147,36 +150,56 @@ def _ehr_family(question: str) -> str:
 
 
 class AgentDriverDomain(Domain):
-    """AgentDriver: not vendored here; fails loudly with a fetch instruction."""
+    """AgentDriver: nuScenes frames, memory from train, queries from val.
 
-    def _require(self) -> None:
-        if not self.corpus_path.exists():
-            raise FileNotFoundError(AD_MISSING.format(path=self.corpus_path))
+    The key text is ``f"{ego} {perception}"``, exactly what ``algo.utils.load_db_ad``
+    embeds and what AgentPoison appends its trigger to.  ``reasoning`` and
+    ``planning_target`` are the answer, so they never enter a key.
 
-    def documents(self) -> list[dict[str, Any]]:
-        self._require()
-        raw = json.loads(self.corpus_path.read_text(encoding="utf-8"))
-        rows = [
-            {"doc_id": str(row.get("token", index)),
-             "text": json.dumps(row.get("ego_states", row), ensure_ascii=False),
-             "family": str(row.get("scene_token", row.get("token", index)))}
+    Queries come from ``data_samples_val.json`` as in AgentPoison: val frames
+    belong to different nuScenes scenes, so a query never meets a copy of itself
+    in memory.
+
+    The files carry no scene token, but frames are stored in scene order and
+    consecutive frames are near duplicates (a sliding 2 s history).  ``family``
+    is therefore a block of ``SCENE_FRAMES`` consecutive frames -- about one
+    nuScenes scene at 2 Hz -- so near duplicates cannot straddle the outer split
+    except at block edges.  A per-frame family would leak them freely.
+    """
+
+    SCENE_FRAMES = 40
+
+    def _require(self, path: Path) -> None:
+        if not path.exists():
+            raise FileNotFoundError(AD_MISSING.format(path=path))
+
+    def _rows(self, path: Path, prefix: str) -> list[dict[str, Any]]:
+        self._require(path)
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        # Families come from file order, so assign them before any sort.
+        return [
+            {"id": str(row["token"]), "text": f"{row['ego']} {row['perception']}",
+             "family": f"{prefix}-scene-{index // self.SCENE_FRAMES:04d}"}
             for index, row in enumerate(raw)
         ]
+
+    def documents(self) -> list[dict[str, Any]]:
+        rows = [{"doc_id": row["id"], "text": row["text"], "family": row["family"]}
+                for row in self._rows(self.corpus_path, "train")]
         rows.sort(key=lambda row: row["doc_id"])
         return rows
 
     def queries(self) -> list[dict[str, Any]]:
-        self._require()
-        return [
-            {"qid": row["doc_id"], "question": row["text"], "family": row["family"]}
-            for row in self.documents()
-        ]
+        rows = [{"qid": row["id"], "question": row["text"], "family": row["family"]}
+                for row in self._rows(self.query_path, "val")]
+        rows.sort(key=lambda row: row["qid"])
+        return _dedupe_by_text(rows, "question")
 
 
 _REGISTRY = {
     "qa": lambda: StrategyQADomain("qa", QA_CORPUS, QA_QUERIES),
     "ehr": lambda: EhrAgentDomain("ehr", EHR_CORPUS, EHR_QUERIES),
-    "ad": lambda: AgentDriverDomain("ad", AD_CORPUS, None),
+    "ad": lambda: AgentDriverDomain("ad", AD_CORPUS, AD_QUERIES),
 }
 
 DOMAIN_NAMES = tuple(_REGISTRY)

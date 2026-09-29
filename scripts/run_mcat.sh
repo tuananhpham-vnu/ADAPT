@@ -37,8 +37,11 @@
 #    scorer at M0-M2, so do not reserve two.
 #  * scikit-learn is required: src.triggers.clustering.fit_centers supplies the benign
 #    reference centers. Without it `train` stops, by design.
-#  * --domain ad will fail: agentdriver/data/finetune/data_samples_train.json is
-#    not vendored. Do not describe results as covering three agent domains.
+#  * --domain ad needs agentdriver/data/finetune/data_samples_{train,val}.json, which
+#    are not vendored (gdown ids in src/triggers/mcat/domains.py AD_MISSING). Its
+#    keys run to ~580 tokens at p90, so use MAX_LENGTH=512 and a smaller OPTIMIZATION
+#    to keep the backward pass inside a T4, e.g.
+#      DOMAINS=ad MAX_LENGTH=512 OPTIMIZATION=16 bash scripts/run_mcat.sh m1
 set -u
 # Without pipefail a failing `cmd | tail` reports tail's status, so a broken test
 # run would sail straight through the preflight and into the GPU stages.
