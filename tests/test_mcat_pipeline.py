@@ -418,6 +418,51 @@ class ShuffledContextControlTests(unittest.TestCase):
         self.assertFalse(result["applicable"])
         self.assertIn("same domain", result["reason"].replace("one domain", "same domain"))
 
+    def _scored(self, contexts):
+        retriever = self.retriever
+
+        class _Workspace:  # evaluate_trigger reads only these two
+            def __init__(self):
+                self.retriever = retriever
+
+            def eval_texts(self, episode):
+                return [fixture_text(10), fixture_text(11), fixture_text(12)]
+
+        return shuffled_context_control(
+            [self.generator] * len(contexts), self.config, contexts, self.retriever,
+            workspace=_Workspace(),
+        )
+
+    def test_without_a_workspace_the_metric_effect_is_marked_unscored(self):
+        result = self._run([self._context("qa-0", "qa"), self._context("qa-1", "qa")])
+        self.assertEqual(result["metric_effect"]["verdict"], "not-scored")
+
+    def test_both_triggers_are_scored_on_the_episodes_own_memory(self):
+        contexts = [self._context(f"qa-{i}", "qa") for i in range(3)]
+        result = self._scored(contexts)
+        effect = result["metric_effect"]
+        self.assertIn(effect["verdict"],
+                      {"memory-used", "memory-inert", "swap-helps", "inconclusive"})
+        for row in result["rows"]:
+            self.assertIn("on_hit", row["own"])
+            if not row["changed"]:
+                # An unchanged trigger is the same trigger: zero drop by construction.
+                self.assertEqual(row["own"], row["swapped_score"])
+        own = [row["own"]["on_hit"] for row in result["rows"]]
+        self.assertAlmostEqual(effect["on_hit"]["own"], sum(own) / len(own))
+        self.assertEqual(effect["on_hit"]["drop"]["groups"], 3)
+
+    def test_a_changed_trigger_with_equal_scores_reads_as_inert(self):
+        from src.triggers.mcat.evaluate import _metric_effect
+
+        rows = [{"episode_id": f"e{i}", "own": {"on_hit": 0.5, "mean_margin": 0.1},
+                 "swapped_score": {"on_hit": 0.5, "mean_margin": 0.1}} for i in range(4)]
+        self.assertEqual(_metric_effect(rows)["verdict"], "memory-inert")
+        for row in rows:
+            row["swapped_score"] = {"on_hit": 0.1, "mean_margin": -0.2}
+        rows[0]["swapped_score"]["on_hit"] = 0.2
+        self.assertEqual(_metric_effect(rows)["verdict"], "memory-used")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,8 +7,10 @@ the relaxed objective never reaches this file.
 Two controls decide whether conditioning does any work:
 
 ``shuffled-context``  swap one episode's memory summary for another's and keep
-                      the queries. If the metrics do not move, the generator
-                      is ignoring memory and the conditioning claim fails.
+                      the queries. Both triggers are scored on the episode's
+                      own memory; if ASR-r does not drop (paired bootstrap),
+                      the generator is ignoring memory and the conditioning
+                      claim fails -- even when the swap changed the tokens.
 ``permutation``       permute the document order. The output must not move,
                       because the pooling is permutation invariant.
 """
@@ -22,7 +24,7 @@ import torch
 from torch import nn
 
 from src.triggers.artifacts import atomic_json, append_jsonl
-from src.triggers.mcat.costs import record
+from src.triggers.mcat.costs import record, unmetered
 from src.triggers.mcat.encoding import encode_plain, encode_with_trigger_embeddings
 from src.triggers.mcat.episodes import Episode
 from src.triggers.mcat.objectives import score_matrix
@@ -195,17 +197,62 @@ def generate_trigger(
     return trigger
 
 
+def _hit_key(row: dict[str, Any]) -> str:
+    return next(key for key in row["trigger_on"] if key.startswith("hit_at_"))
+
+
+def _metric_effect(rows: list[dict[str, Any]], *, seed: int = 0) -> dict[str, Any]:
+    """Paired ASR-r drop from the swap, bootstrapped over episodes.
+
+    ``drop = own - swapped``: positive means the trigger generated from the
+    episode's own memory retrieves the poison better *on that memory* than the
+    one generated from another snapshot -- the generator used memory to some
+    effect.  A changed trigger with no drop is still an inert memory branch.
+    """
+    from src.triggers.mcat.stats import paired_bootstrap
+
+    groups = [row["episode_id"] for row in rows]
+    effect: dict[str, Any] = {}
+    for metric in ("on_hit", "mean_margin"):
+        own = [row["own"][metric] for row in rows]
+        swapped = [row["swapped_score"][metric] for row in rows]
+        effect[metric] = {"own": _mean(own), "swapped": _mean(swapped),
+                          "drop": paired_bootstrap(own, swapped, groups, seed=seed)}
+    hit = effect["on_hit"]["drop"]
+    if hit.get("ci_low") is None:
+        verdict = "inconclusive"
+    elif hit["ci_low"] > 0:
+        verdict = "memory-used"
+    elif hit["ci_high"] < 0:
+        verdict = "swap-helps"
+    else:
+        verdict = "memory-inert"
+    effect["verdict"] = verdict
+    return effect
+
+
 def shuffled_context_control(
     modules: list[nn.Module],
     config: TrainConfig,
     contexts: list[EpisodeContext],
     retriever: Retriever,
+    *,
+    workspace: Workspace | None = None,
+    score: str = "dot",
+    frozen_poison: FrozenPoison | None = None,
 ) -> dict[str, Any]:
     """Rotate memory summaries between episodes, holding queries fixed.
 
     Identical triggers before and after the swap mean the memory branch is
     inert -- the finding that would sink the conditioning claim, so it is
     reported as a number rather than left to inspection.
+
+    A changed trigger is not enough, though: if the swapped trigger retrieves
+    the poison just as well, memory changed the tokens and nothing else.  With
+    a ``workspace`` both triggers are scored on the episode's **own** memory and
+    evaluation queries, and ``metric_effect`` reports the paired ASR-r drop with
+    an episode-level bootstrap.  That drop, not ``change_rate``, is the evidence
+    for the conditioning claim.
 
     Swaps stay **within a domain**.  Handing a StrategyQA episode an EhrAgent
     snapshot is a distribution shift a generator could notice without having
@@ -214,6 +261,18 @@ def shuffled_context_control(
     """
     if config.mode != "generator":
         return {"applicable": False, "reason": "needs a generator"}
+
+    def scored(context: EpisodeContext, trigger: dict[str, Any]) -> dict[str, float]:
+        frozen = (None if frozen_poison is None
+                  else frozen_poison.keys_for(context.episode.episode_id))
+        # A diagnostic, not attacker work: refresh-mode poison writes here must
+        # not reach the evaluate ledger the break-even numbers are read from.
+        with unmetered():
+            row = evaluate_trigger(workspace, context, trigger, score=score,
+                                   frozen_poison=frozen,
+                                   position=config.trigger_position)
+        on = row["trigger_on"]
+        return {"on_hit": on[_hit_key(row)], "mean_margin": on["mean_margin"]}
 
     by_domain: dict[str, list[int]] = {}
     for index, context in enumerate(contexts):
@@ -234,19 +293,32 @@ def shuffled_context_control(
                                        memory_override=other.memory_vectors)
             differs = original["token_ids"] != swapped["token_ids"]
             changed += int(differs)
-            rows.append({"episode_id": context.episode.episode_id, "domain": name,
-                         "swapped_with": other.episode.episode_id,
-                         "original": original["trigger"], "swapped": swapped["trigger"],
-                         "changed": differs})
+            row = {"episode_id": context.episode.episode_id, "domain": name,
+                   "swapped_with": other.episode.episode_id,
+                   "original": original["trigger"], "swapped": swapped["trigger"],
+                   "changed": differs}
+            if workspace is not None:
+                # Both scored on THIS episode's memory and queries: the swap
+                # changes only which snapshot the generator was shown.
+                row["own"] = scored(context, original)
+                row["swapped_score"] = (row["own"] if not differs
+                                        else scored(context, swapped))
+            rows.append(row)
         per_domain[name] = {"episodes": len(group), "changed": changed,
                             "change_rate": changed / len(group)}
 
     episodes = sum(entry["episodes"] for entry in per_domain.values())
     changed = sum(entry["changed"] for entry in per_domain.values())
     skipped = sorted(set(by_domain) - set(usable))
-    return {"applicable": True, "episodes": episodes, "changed": changed,
-            "change_rate": changed / episodes, "per_domain": per_domain,
-            "skipped_domains": skipped, "rows": rows}
+    result = {"applicable": True, "episodes": episodes, "changed": changed,
+              "change_rate": changed / episodes, "per_domain": per_domain,
+              "skipped_domains": skipped, "rows": rows}
+    if workspace is not None:
+        result["metric_effect"] = _metric_effect(rows)
+    else:
+        result["metric_effect"] = {"verdict": "not-scored",
+                                   "reason": "no workspace: only token change measured"}
+    return result
 
 
 def permutation_control(
@@ -315,7 +387,9 @@ def evaluate(
     }
     if controls:
         summary["controls"] = {
-            "shuffled_context": shuffled_context_control(modules, config, contexts, retriever),
+            "shuffled_context": shuffled_context_control(
+                modules, config, contexts, retriever, workspace=workspace, score=score,
+                frozen_poison=frozen_poison),
             "permutation": permutation_control(modules, config, contexts, retriever),
         }
     atomic_json(output_dir / "evaluation.json", {"config": asdict(config)} | summary)

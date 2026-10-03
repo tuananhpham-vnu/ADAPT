@@ -282,14 +282,19 @@ for arm in sys.argv[1:]:
     controls = data.get("controls", {}).get("shuffled_context", {})
     if controls.get("applicable"):
         note = f"shuffled-context changed {controls['changed']}/{controls['episodes']}"
+        effect = controls.get("metric_effect", {})
+        if "on_hit" in effect:
+            drop = effect["on_hit"]["drop"]["mean_difference"]
+            note += f", hit drop {drop:+.3f} -> {effect['verdict']}"
     else:
         note = f"shuffled-context n/a ({controls.get('reason', '-')})"
     print(f"  {arm:<8} {hit:>7.3f} {occ:>7.3f} {on['mean_margin']:>9.3f} "
           f"{data['false_activation']:>10.3f} {data['round_trip_valid_rate']:>6.2f}  {note}")
 print()
 print("  Read these before quoting any of it:")
-print("   * a low shuffled-context change rate means the memory branch is inert")
-print("     and the conditioning claim is NOT supported -- a valid negative result.")
+print("   * the shuffled-context verdict (memory-used / memory-inert) is read from")
+print("     the paired ASR-r drop on the episode's own memory, not the change rate;")
+print("     memory-inert means the conditioning claim is NOT supported.")
 print("   * rt-ok below 1.00 means triggers broke on decode; loss gains are then void.")
 print("   * false-act is only meaningful when the snapshot is much larger than K;")
 print("     read it per domain in evaluation.jsonl, not as this average.")

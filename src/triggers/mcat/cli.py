@@ -661,6 +661,20 @@ def report(args: argparse.Namespace) -> Path:
             "  A low rate means the memory branch is inert and the conditioning "
             "claim is not supported.",
         ]
+        effect = shuffled.get("metric_effect", {})
+        if "on_hit" in effect:
+            drop = effect["on_hit"]["drop"]
+            lines.append(
+                f"- ASR-r on the episode's own memory: own {effect['on_hit']['own']:.4f} "
+                f"vs swapped {effect['on_hit']['swapped']:.4f}, drop "
+                f"{_format(drop['mean_difference'])} "
+                f"[{_format(drop['ci_low'])}, {_format(drop['ci_high'])}] "
+                f"-> **{effect['verdict']}**"
+            )
+            lines.append(
+                "  This, not the change rate, is the evidence: a changed trigger "
+                "with no ASR-r drop is still an inert memory branch."
+            )
         for name, entry in sorted(shuffled.get("per_domain", {}).items()):
             lines.append(
                 f"  - {name}: {entry['changed']}/{entry['episodes']} "
