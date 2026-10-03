@@ -15,6 +15,35 @@ thì claim chính không đứng được dù số đẹp.
 
 **Ưu tiên tuyệt đối. P1/P2 dưới đây đều vô nghĩa nếu P0 cho kết quả xấu.**
 
+> **Kết quả lần chạy đầu (2026-10-03) → [`p0_falsification_results.md`](p0_falsification_results.md).**
+> R2 `stable`, R1 `universal-suffices` — cả hai rủi ro **đúng** trong thiết lập đã
+> chạy, nhưng `hit@5` chạm trần 1.0 ở mọi arm nên phép đo không phân biệt được. Xem
+> bảng margin và nguồn từng con số trong file kết quả.
+
+### Lần chạy 2 — AgentDriver, 6 token (chốt TRƯỚC khi chạy, 2026-10-03)
+
+Đổi thiết lập **sau** khi thấy lần 1 chạm trần → phải ghi trước, và lần 1 vẫn được
+báo cáo nguyên vẹn. Quyết định của người dùng: tập trung AgentDriver, trigger 6 token,
+đánh giá đủ lớn.
+
+| | Lần 1 (qa) | **Lần 2 (ad)** |
+|---|---|---|
+| Domain | StrategyQA | **AgentDriver** (key = `ego + perception`, max_length 512) |
+| Trigger | 10 token | **6 token** |
+| Memory / episode | 512 | **2000** (split test có 4520 → +100% vẫn trong split) |
+| Query eval / episode | 128 (509 query khác nhau) | **1000** (trên 1379 query test) |
+| Episode test | 8 | **16** |
+| Không đổi | top-5, 5 poison, 400 step, 5 drift seed, 25/50/100%, `refresh`, opt 16 query | |
+
+**Tiêu chí đọc (chốt trước):**
+1. Verdict của code (`probe_growth`, `probe_universal`) được báo nguyên văn.
+2. **Cờ trần:** nếu `hit@5` ở base ≥ 0.95 cho **cả** B2 và B3 thì verdict R1/R2 được
+   ghi là *chạm trần — không phân biệt được*, không phải bằng chứng R1/R2 đúng hay sai.
+   Khi đó báo thêm mean / worst margin (paired theo episode), nhưng **không** đổi
+   verdict dựa trên margin.
+3. R2 chỉ được coi là bị bác bỏ khi verdict là `decays`; R1 chỉ khi `conditioning-helps`.
+4. Báo `off_hit` (false activation) cạnh mọi con số ASR.
+
 Toàn bộ luận điểm của MCAT (memory-conditioned trigger + amortization) chỉ tồn
 tại nếu **cả hai** mệnh đề sau đều SAI:
 
@@ -140,12 +169,12 @@ hiệu ứng lớn hơn `seed_spread`. Ngân sách lệch ở R1 bị `compare_r
 `confounded` thay vì trả ra một con số trông có vẻ có nghĩa.
 
 ### Cần làm (theo đúng thứ tự này)
-- [ ] `bash scripts/run_p0_probes.sh r2` → trả lời R2. Rẻ nhất, chạy trước.
-- [ ] `bash scripts/run_p0_probes.sh r1` → trả lời R1 (B3 `universal-logit` ghép cặp
+- [x] `bash scripts/run_p0_probes.sh r2` → `stable` (2026-10-03), nhưng hit@5 chạm trần — xem `p0_falsification_results.md`.
+- [x] `bash scripts/run_p0_probes.sh r1` → `universal-suffices` (2026-10-03); B3 còn hơn B2 trên margin. Trả lời R1 (B3 `universal-logit` ghép cặp
   với B2 `direct-logit`, cùng `--steps`).
 - [ ] Chỉ khi **cả hai bị bác bỏ** mới train generator / chạy experiment lớn.
-- [ ] `bash scripts/run_p0_probes.sh position` → P1. Là phát hiện, không phải cổng.
-- [ ] Ghi kết quả P0 vào một file riêng (`p0_falsification_results.md`), kể cả
+- [x] `bash scripts/run_p0_probes.sh position` → P1 chạy cả transfer + reoptimize; on_hit trần, chỉ off_hit khác (middle tệ nhất).
+- [x] Ghi kết quả P0 vào một file riêng (`p0_falsification_results.md`), kể cả
   khi kết quả xấu — kết quả xấu ở đây tiết kiệm hàng tuần GPU.
 
 ---
@@ -314,7 +343,7 @@ EMNLP 2023.**
 |---|---|---|
 | MCAT vs. tối ưu trigger per-memory | Đánh đổi chất lượng ↔ chi phí | B2 `direct-logit` ✅; B1 `--mode hotflip` ✅ (2026-10-03, chưa có số thật) |
 | MCAT vs. generator chỉ thấy query | Giá trị cộng thêm của memory input | B5 `--variant query` ✅ (`generator.py:14`) |
-| MCAT với memory đúng vs. memory bị shuffle | Generator có thực sự dùng memory | `shuffled_context_control` ✅ nhưng **đo sai thứ** — xem gap G1 |
+| MCAT với memory đúng vs. memory bị shuffle | Generator có thực sự dùng memory | `shuffled_context_control` ✅ đo ΔASR-r (G1 đã sửa 2026-10-03) |
 | MCAT vs. một universal trigger cố định | Có cần thích nghi không | B3 `universal-logit` ✅ — chính là P0-R1 |
 | MCAT vs. generator vô điều kiện | Network có chỉ ghi nhớ một lời giải | B4 `--variant none` ✅ |
 | MCAT vs. trigger bank nearest-context | Lookup có đủ thay learning không | B7 trong design doc, **chưa cài** |
@@ -365,8 +394,12 @@ thêm: generator thấy **toàn bộ** snapshot hay chỉ summary/mẫu, và bas
 cấp **cùng** quyền đó. Đối chiếu riêng với Zhong (chỉ sửa corpus).
 
 ### Cần làm
-- [ ] Sửa G1: shuffled-context đo ΔASR-r, không chỉ `change_rate`. Rẻ, và là
-  bằng chứng trực tiếp nhất cho câu hỏi nghiên cứu.
+- [x] Sửa G1 (2026-10-03): `shuffled_context_control` chấm cả trigger gốc lẫn
+  trigger sinh từ memory bị swap trên memory + Q_eval **gốc** của episode, báo
+  `metric_effect` (drop `on_hit` / `mean_margin`, paired bootstrap theo episode) và
+  verdict `memory-used | memory-inert | swap-helps | inconclusive`. Phép chấm chạy
+  trong `costs.unmetered()` để không lẫn vào ledger break-even. Chỉ áp cho
+  `--mode generator`; chưa có số thật.
 - [x] G3: thêm B1 HotFlip như một mode của `mcat` (`--mode hotflip`, arm `b1` trong
   `scripts/run_mcat.sh`). Còn phải chạy trên DPR thật và so ngân sách qua
   `costs-train.json`, không qua `--steps`.
