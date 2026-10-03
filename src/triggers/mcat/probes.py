@@ -644,6 +644,23 @@ def attention_mass(
     budget = retriever.max_length - spent - 2
 
     shares: list[float] = []
+    # SDPA/flash kernels (the transformers 5 default) never materialize attention
+    # weights, so output_attentions comes back empty.  Switch to eager for this
+    # measurement only and restore afterwards: retrieval numbers stay on SDPA.
+    previous = getattr(model.config, "_attn_implementation", None)
+    switch = getattr(model, "set_attn_implementation", None)
+    if switch is not None and previous not in (None, "eager"):
+        switch("eager")
+    try:
+        return _attention_shares(model, tokenizer, retriever, texts, position, embedding,
+                                 trigger_embeds, length, spent, budget, shares)
+    finally:
+        if switch is not None and previous not in (None, "eager"):
+            switch(previous)
+
+
+def _attention_shares(model, tokenizer, retriever, texts, position, embedding,
+                      trigger_embeds, length, spent, budget, shares):
     with torch.no_grad():
         for text in texts:
             prefix = tokenizer(text, add_special_tokens=False, truncation=True,

@@ -379,7 +379,9 @@ if [ "$SKIP_PREFLIGHT" != "1" ]; then
   preflight || { echo "!! preflight failed; nothing was run on the GPU" >&2; exit 1; }
 fi
 
-mkdir -p "$CACHE_DIR"
+# RUN_ROOT too: preflight is the only other place that makes it, and
+# SKIP_PREFLIGHT=1 would leave every probe with nowhere to write its console.
+mkdir -p "$CACHE_DIR" "$RUN_ROOT"
 failed=()
 for probe in "${PROBES[@]}"; do
   case "$probe" in
