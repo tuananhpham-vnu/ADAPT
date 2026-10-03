@@ -71,6 +71,7 @@ Artifacts per run: `manifest.json`, `episodes.jsonl`, `checkpoint.pt`, `metrics.
 
 | Mode / variant | Plan ID | Question it answers |
 |---|---|---|
+| `--mode hotflip` | B1 | AgentPoison's HotFlip search, per episode, on the same objective and vocabulary. The published-attack baseline. |
 | `--mode direct-logit` | B2 | What does gradient optimization alone buy, per episode? |
 | `--mode universal-logit` | B3 | Is one universal trigger already enough? |
 | `--mode generator --variant none` | B4 | Is the network just memorizing one solution? |
@@ -82,8 +83,16 @@ All four generator variants have **identical parameter counts** — a dropped br
 learned constant pseudo-set rather than being deleted — so the comparison isolates
 information, not capacity.
 
-`direct-logit` cannot transfer: at evaluation it re-optimizes on the evaluated split and
-writes that run under `adapt-<split>/`, so its extra online cost stays visible.
+`hotflip` and `direct-logit` cannot transfer: at evaluation they re-optimize on the
+evaluated split and write that run under `adapt-<split>/`, so their extra online cost stays
+visible.
+
+For `hotflip`, `--steps` counts HotFlip iterations, and each one also scores
+`--hotflip-candidates` (default 100, upstream `--num-cand`) exact forward passes. One
+iteration therefore costs far more than one B2 gradient step: compare B1 against the other
+arms on `costs-train.json`, never on `--steps` alone. `--lambda-ret 0` is upstream
+AgentPoison's `uni : cpt = 1 : 0.1` objective. Departures from upstream (random start
+instead of `[MASK]`, the masking bug that is not reproduced) are listed in `hotflip.py`.
 
 ## Module map
 

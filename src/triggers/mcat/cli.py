@@ -35,10 +35,18 @@ from src.triggers.mcat.episodes import (
 )
 from src.triggers.mcat.evaluate import evaluate
 from src.triggers.mcat.generator import parameter_count
+from src.triggers.mcat.encoding import POSITIONS
 from src.triggers.mcat.poison import FROZEN_POISON_FILE, FrozenPoison
+from src.triggers.mcat.probes import (
+    GROWTH_ROWS, GROWTH_SUMMARY, POSITION_ROWS, POSITION_SUMMARY, PROBE_GROWTH,
+    PROBE_SEEDS, R1_SUMMARY, GrowthProbeConfig, PositionProbeConfig, attention_mass,
+    compare_runs, growth_probe, position_probe, summarize_growth, summarize_position,
+)
 from src.triggers.mcat.retrievers import build_fixture_retriever, load_dpr, DEFAULT_RETRIEVER
 from src.triggers.mcat.runtime import Workspace
-from src.triggers.mcat.train import TrainConfig, build_contract, train, _logits_source
+from src.triggers.mcat.train import (
+    MODES, PER_EPISODE_MODES, TrainConfig, build_contract, train, _logits_source,
+)
 
 DEFAULT_OUTPUT = ROOT / "outputs/mcat"
 
@@ -51,7 +59,8 @@ def _train_config(args: argparse.Namespace) -> TrainConfig:
         poison_mode=args.poison_mode, grad_clip=args.grad_clip,
         context_dim=args.context_dim, hidden=args.hidden,
         attention_pool=args.attention_pool, memory_summary_keys=args.memory_summary_keys,
-        seed=args.seed,
+        seed=args.seed, trigger_position=args.trigger_position,
+        hotflip_candidates=args.hotflip_candidates,
     )
 
 
@@ -189,9 +198,9 @@ def evaluate_stage(args: argparse.Namespace) -> Path:
     if not target:
         raise ValueError(f"no episodes in split {args.split!r}")
 
-    if config.mode == "direct-logit":
-        # B2 has nothing to transfer: its logits belong to the episodes it was
-        # fitted on.  The fair protocol is to let it optimize on the evaluation
+    if config.mode in PER_EPISODE_MODES:
+        # B1/B2 have nothing to transfer: their triggers belong to the episodes
+        # they were fitted on.  The fair protocol is to let it optimize on the evaluation
         # episodes too, paying that online cost, and report it under
         # adapt-<split>/ so the extra compute is never lost from the comparison.
         adapt_dir = Path(args.output_dir) / f"adapt-{args.split}"
@@ -348,7 +357,7 @@ def adapt_stage(args: argparse.Namespace) -> Path:
         if checkpoint["contract"] != expected:
             raise ValueError(
                 "adaptation refused: the checkpoint was trained under another contract")
-    elif config.mode != "direct-logit":
+    elif config.mode not in PER_EPISODE_MODES:
         raise FileNotFoundError("stage train is required: checkpoint.pt is missing")
 
     target = [episode for episode in episodes if episode.split == args.split]
@@ -420,6 +429,204 @@ def evaluate_drift_stage(args: argparse.Namespace) -> Path:
                  "directory": str(drift_dir)})
     print(json.dumps(summary["methods"], ensure_ascii=False, indent=2))
     return drift_dir / DRIFT_SUMMARY
+
+
+def _as_written(value: Any) -> Any:
+    """``value`` as it will read back from JSON.
+
+    A probe contract holds tuples (growth levels, drift seeds, positions), and
+    JSON has only arrays -- so comparing a fresh contract against the stored one
+    compared a tuple with a list and refused every resume.  Round-tripping both
+    sides is the comparison that means what it says.
+    """
+    return json.loads(json.dumps(value, ensure_ascii=False, sort_keys=True))
+
+
+def _probe_contract(
+    args: argparse.Namespace, manifest: dict[str, Any], workspace: Workspace,
+    *, probe: str, config: Any,
+) -> dict[str, Any]:
+    """What a probe resume must match: the run contract plus the probe's own setup."""
+    return _as_written(
+        build_contract(_train_config(args), manifest, workspace.retriever) | {
+            "split": args.split, "probe": probe, "probe_config": asdict(config),
+        }
+    )
+
+
+def _lock_probe_config(path: Path, contract: dict[str, Any]) -> None:
+    """Pin a probe directory to one configuration, or refuse to add to it."""
+    if path.exists() and _as_written(read_json(path)) != contract:
+        raise ValueError(
+            f"probe refused: {path.parent} holds rows from another probe "
+            "configuration; use a new --output-dir, or change --split / "
+            "--trigger-position so this arm gets its own directory"
+        )
+    atomic_json(path, contract)
+
+
+def _probe_dir(args: argparse.Namespace, name: str) -> Path:
+    """One probe's own directory, keyed by the split and the trigger position.
+
+    Two positions are two experiments, so their rows must not land in one file:
+    a mean over a mixed file would average placements the paper reports apart.
+    """
+    return (Path(args.output_dir) / "probes"
+            / f"{name}-{args.trigger_position}-{args.split}")
+
+
+def _probe_checkpoint(args: argparse.Namespace, manifest, workspace):
+    """The run's checkpoint, or ``None`` for the modes that do not need one."""
+    import torch
+
+    path = Path(args.output_dir) / "checkpoint.pt"
+    config = _train_config(args)
+    if not path.exists():
+        if config.mode not in PER_EPISODE_MODES:
+            raise FileNotFoundError(
+                "stage train is required: checkpoint.pt is missing. Only --mode "
+                f"{'/'.join(PER_EPISODE_MODES)} can probe without one, because they "
+                "search per episode"
+            )
+        return None
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    expected = build_contract(config, manifest, workspace.retriever)
+    if checkpoint["contract"] != expected:
+        raise ValueError(
+            "probe refused: the checkpoint was trained under another contract "
+            "(config, split or encoder changed). Re-run train, or point --output-dir "
+            "at the run that produced it"
+        )
+    return checkpoint
+
+
+def probe_growth(args: argparse.Namespace) -> Path:
+    """P0-R2: hold the trigger and poison fixed, grow the memory, measure decay."""
+    output_dir = Path(args.output_dir)
+    episodes, manifest = _load_episodes(output_dir)
+    workspace = _workspace(args)
+    config = _train_config(args)
+    checkpoint = _probe_checkpoint(args, manifest, workspace)
+    probe = GrowthProbeConfig(
+        growth=tuple(args.growth), seeds=tuple(args.drift_seed),
+        min_base_hit=args.min_base_hit, score=args.score,
+    )
+    target = [episode for episode in episodes if episode.split == args.split]
+    if not target:
+        raise ValueError(f"no episodes in split {args.split!r}")
+
+    directory = _probe_dir(args, "growth")
+    directory.mkdir(parents=True, exist_ok=True)
+    contract = _probe_contract(args, manifest, workspace, probe="growth", config=probe)
+    _lock_probe_config(directory / "probe_config.json", contract)
+
+    ledger = CostLedger(device=str(workspace.retriever.device))
+    with ledger.active():
+        growth_probe(
+            workspace, target, config, probe, checkpoint=checkpoint,
+            output_dir=directory, contract=contract,
+            ratios=tuple(manifest["ratios"]), split_seed=manifest["seed"],
+            ledger=ledger, resume=args.resume,
+        )
+    # Summarized from the file, not from the rows this process produced, so a
+    # resumed run reports the whole probe rather than the part it recomputed.
+    summary = summarize_growth(load_rows(directory / GROWTH_ROWS),
+                               iterations=args.bootstrap_iterations, seed=args.seed)
+    summary["directory"] = str(directory)
+    atomic_json(directory / GROWTH_SUMMARY, summary)
+    atomic_json(directory / "costs.json", ledger.to_json())
+    atomic_json(output_dir / "stages/probe-growth.json",
+                {"state": "completed", "split": args.split,
+                 "verdict": summary["verdict"], "directory": str(directory)})
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return directory / GROWTH_SUMMARY
+
+
+def probe_position(args: argparse.Namespace) -> Path:
+    """P1: score the trigger at the head, the tail, the middle and both ends."""
+    output_dir = Path(args.output_dir)
+    episodes, manifest = _load_episodes(output_dir)
+    workspace = _workspace(args)
+    config = _train_config(args)
+    checkpoint = _probe_checkpoint(args, manifest, workspace)
+    probe = PositionProbeConfig(
+        positions=tuple(args.position or ("suffix", "prefix", "both", "middle")),
+        mode=args.position_mode, score=args.score,
+    )
+    target = [episode for episode in episodes if episode.split == args.split]
+    if not target:
+        raise ValueError(f"no episodes in split {args.split!r}")
+
+    directory = _probe_dir(args, f"position-{probe.mode}")
+    directory.mkdir(parents=True, exist_ok=True)
+    contract = _probe_contract(args, manifest, workspace, probe="position", config=probe)
+    _lock_probe_config(directory / "probe_config.json", contract)
+
+    ledger = CostLedger(device=str(workspace.retriever.device))
+    with ledger.active():
+        rows = position_probe(
+            workspace, target, config, probe, checkpoint=checkpoint,
+            output_dir=directory, contract=contract, ledger=ledger, resume=args.resume,
+        )
+    summary = summarize_position(load_rows(directory / POSITION_ROWS),
+                                 baseline=args.position_baseline,
+                                 iterations=args.bootstrap_iterations, seed=args.seed)
+    if args.attention:
+        import torch
+
+        # Mechanistic evidence for the placement claim, measured on Q_sup only:
+        # Q_eval stays locked, and an attention share does not need it.
+        by_qid = {row["qid"]: row["question"]
+                  for row in workspace.queries(target[0].domain)}
+        texts = [by_qid[qid] for qid in target[0].support_qids[:args.attention_queries]]
+        attention = {}
+        for position in probe.positions:
+            ids = _trigger_ids_of(directory, position)
+            if not ids:
+                attention[position] = {"supported": False, "position": position,
+                                       "reason": "no scored trigger for this position"}
+                continue
+            attention[position] = attention_mass(
+                workspace, texts, torch.tensor(ids, dtype=torch.long),
+                position=position,
+            )
+        summary["attention"] = attention
+    summary["directory"] = str(directory)
+    atomic_json(directory / POSITION_SUMMARY, summary)
+    atomic_json(directory / "costs.json", ledger.to_json())
+    atomic_json(output_dir / "stages/probe-position.json",
+                {"state": "completed", "split": args.split,
+                 "best_length_matched": summary.get("best_length_matched"),
+                 "directory": str(directory)})
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return directory / POSITION_SUMMARY
+
+
+def _trigger_ids_of(directory: Path, position: str) -> list[int]:
+    """Token ids of the first trigger scored at ``position``, from the rows on disk."""
+    for row in load_rows(directory / POSITION_ROWS):
+        if row.get("position") == position and row.get("applicable"):
+            return list(row.get("token_ids") or [])
+    return []
+
+
+def probe_universal(args: argparse.Namespace) -> Path:
+    """P0-R1: pair this run's evaluation against a universal-logit run's."""
+    if not args.control_dir:
+        raise ValueError(
+            "--control-dir is required: it is the directory of the B3 "
+            "universal-logit run this one is paired against"
+        )
+    summary = compare_runs(
+        Path(args.output_dir), Path(args.control_dir), metric=args.probe_metric,
+        iterations=args.bootstrap_iterations, seed=args.seed,
+    )
+    path = Path(args.output_dir) / R1_SUMMARY
+    atomic_json(path, summary)
+    atomic_json(Path(args.output_dir) / "stages/probe-universal.json",
+                {"state": "completed", "verdict": summary["verdict"]})
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return path
 
 
 def report(args: argparse.Namespace) -> Path:
@@ -600,8 +807,12 @@ def add_common(parser: argparse.ArgumentParser) -> None:
                                 "directory to encode the corpus only once")
 
     training = parser.add_argument_group("training")
-    training.add_argument("--mode", choices=("direct-logit", "universal-logit", "generator"),
-                          default="generator")
+    training.add_argument("--mode", choices=MODES, default="generator",
+                          help="hotflip is B1, AgentPoison's discrete search per "
+                               "episode; --steps then counts HotFlip iterations")
+    training.add_argument("--hotflip-candidates", type=int, default=100,
+                          help="hotflip: replacements scored exactly per iteration "
+                               "(upstream --num-cand)")
     training.add_argument("--variant", default="memory+query",
                           choices=("memory+query", "query", "memory", "none"))
     training.add_argument("--steps", type=int, default=200)
@@ -617,6 +828,10 @@ def add_common(parser: argparse.ArgumentParser) -> None:
     training.add_argument("--hidden", type=int, default=256)
     training.add_argument("--attention-pool", action="store_true")
     training.add_argument("--memory-summary-keys", type=int, default=128)
+    training.add_argument("--trigger-position", choices=POSITIONS, default="suffix",
+                          help="where the trigger sits inside the query (P1). Part of "
+                               "the config hash, so changing it invalidates a "
+                               "checkpoint instead of silently rescoring it")
 
     evaluation = parser.add_argument_group("evaluation")
     evaluation.add_argument("--split", choices=("train", "validation", "test"),
@@ -644,6 +859,35 @@ def add_common(parser: argparse.ArgumentParser) -> None:
                        help="how close two arms must be before a break-even point "
                             "may be quoted as a speedup")
 
+    probes = parser.add_argument_group("probes (P0/P1)")
+    probes.add_argument("--drift-seed", type=int, nargs="+", default=list(PROBE_SEEDS),
+                        help="resamples of the benign documents added at each growth "
+                             "level. One seed is one data split and cannot support a "
+                             "claim; the summary compares the spread across these "
+                             "against the effect of growth")
+    probes.add_argument("--min-base-hit", type=float, default=0.0,
+                        help="skip episodes whose trigger does not reach this hit@K on "
+                             "the undrifted snapshot. Measured before any growth, so "
+                             "it cannot select for decay")
+    probes.add_argument("--position", action="append", choices=POSITIONS, default=None,
+                        help="repeatable; defaults to suffix/prefix/both/middle")
+    probes.add_argument("--position-mode", choices=("transfer", "reoptimize"),
+                        default="transfer",
+                        help="transfer scores one trigger at every placement; "
+                             "reoptimize fits a trigger per placement. Different "
+                             "questions -- do not report them as one number")
+    probes.add_argument("--position-baseline", choices=POSITIONS, default="suffix",
+                        help="the placement every other one is paired against")
+    probes.add_argument("--attention", action="store_true",
+                        help="also measure the share of [CLS] attention the trigger "
+                             "receives at each placement")
+    probes.add_argument("--attention-queries", type=int, default=8,
+                        help="how many Q_sup queries the attention share averages over")
+    probes.add_argument("--control-dir", type=Path, default=None,
+                        help="probe-universal: the B3 universal-logit run directory")
+    probes.add_argument("--probe-metric", default="on_hit",
+                        help="probe-universal: on_hit, off_hit, or any trigger_on key")
+
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="python -m src.triggers.mcat", description=__doc__)
@@ -652,6 +896,8 @@ def parser() -> argparse.ArgumentParser:
         ("prepare-episodes", prepare_episodes), ("index", index), ("train", train_stage),
         ("evaluate", evaluate_stage), ("prepare-drift", prepare_drift),
         ("adapt", adapt_stage), ("evaluate-drift", evaluate_drift_stage),
+        ("probe-growth", probe_growth), ("probe-position", probe_position),
+        ("probe-universal", probe_universal),
         ("report", report), ("smoke", smoke),
     ):
         stage = subparsers.add_parser(name, help=handler.__doc__)

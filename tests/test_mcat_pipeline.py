@@ -25,6 +25,7 @@ from src.triggers.mcat.evaluate import retrieval_metrics, shuffled_context_contr
 from src.triggers.mcat.generator import (
     SetEncoder, TriggerGenerator, parameter_count, sample_memory_keys,
 )
+from src.triggers.mcat.relaxation import straight_through_gumbel
 from src.triggers.mcat.retrievers import build_fixture_retriever, fixture_text
 
 MAX_LENGTH = 32
@@ -119,6 +120,35 @@ class GeneratorTests(unittest.TestCase):
         sampled = sample_memory_keys(self.memory, 5, generator=generator)
         self.assertEqual(sampled.shape[0], 5)
         self.assertIs(sample_memory_keys(self.memory, 999), self.memory)
+
+    def test_initial_logits_are_as_small_as_a_free_logits_matrix(self):
+        # B2/B3 start at 0.01 * randn; raw DPR-scale inputs must not change that.
+        logits = self._generator()(self.memory * 1000.0, self.support * 1000.0)
+        self.assertLess(float(logits.abs().max()), 0.1)
+
+    def test_gradient_survives_adam_like_the_logits_matrix(self):
+        # Regression for the AgentDriver pilot: a plain readout under Adam at
+        # 1e-3 saturated the Gumbel-softmax within 25 steps and the gradient was
+        # exactly zero afterwards.  The generator must stay in the regime B3
+        # trains in: gradient alive and logits still small after 200 steps.
+        torch.manual_seed(0)
+        vocab, dim, steps = 2048, 64, 200
+        generator = TriggerGenerator(embedding_dim=dim, vocab_size=vocab, trigger_tokens=4,
+                                     context_dim=32, hidden=256)
+        memory, support = torch.randn(32, dim) * 20.0 + 3.0, torch.randn(8, dim) * 20.0
+        target = torch.randn(vocab)
+        optimizer = torch.optim.Adam(generator.parameters(), lr=1e-3)
+        for step in range(steps):
+            tau = 2.0 - 1.5 * step / (steps - 1)
+            optimizer.zero_grad()
+            relaxed = straight_through_gumbel(generator(memory, support), tau)
+            (-(relaxed @ target).mean()).backward()
+            norm = torch.nn.utils.clip_grad_norm_(generator.parameters(), 5.0)
+            optimizer.step()
+        self.assertGreater(float(norm), 1e-4)
+        with torch.no_grad():
+            logits = generator(memory, support)
+        self.assertLess(float(logits.max() - logits.min()), 5.0)
 
     def test_set_encoder_rejects_a_non_set_input(self):
         with self.assertRaises(ValueError):

@@ -45,18 +45,25 @@ SCHEMA_VERSION = 1
 
 
 def encode_poison_keys(
-    context: EpisodeContext, trigger_ids: torch.Tensor, retriever: Retriever
+    context: EpisodeContext,
+    trigger_ids: torch.Tensor,
+    retriever: Retriever,
+    *,
+    position: str = "suffix",
 ) -> torch.Tensor:
     """The keys the attacker's B records would carry under ``trigger_ids``.
 
     VN — Encode B record poison của episode với trigger đang xét, ra vector key
-    mà retriever sẽ dùng để xếp hạng.
+    mà retriever sẽ dùng để xếp hạng. ``position`` phải trùng với vị trí dùng lúc
+    train và lúc eval, nếu không thì key poison nằm ở một không gian khác với
+    query đang đi tìm nó.
     """
     with torch.no_grad():
         embeds = retriever.model.get_input_embeddings()(trigger_ids.to(retriever.device))
         return encode_with_trigger_embeddings(
             retriever.model, retriever.tokenizer, context.poison_texts, embeds,
             device=retriever.device, max_length=retriever.max_length,
+            position=position,
         )
 
 
@@ -125,6 +132,7 @@ def freeze_poison(
     triggers: Iterable[dict[str, Any]],
     *,
     output_dir: Path,
+    position: str = "suffix",
 ) -> FrozenPoison:
     """Write the poison records once, at ``s0``, and persist their keys.
 
@@ -146,7 +154,8 @@ def freeze_poison(
         ids = runtime_trigger_ids(trigger, retriever.device)
         # The one write the fixed policy ever makes, charged like any other.
         record("index_writes", len(context.poison_texts))
-        keys[episode.episode_id] = encode_poison_keys(context, ids, retriever).detach().cpu()
+        keys[episode.episode_id] = encode_poison_keys(
+            context, ids, retriever, position=position).detach().cpu()
         token_ids[episode.episode_id] = ids.detach().cpu().tolist()
         snapshots[episode.episode_id] = context.snapshot_id
     frozen = FrozenPoison(retriever.fingerprint(), token_ids, keys, snapshots)

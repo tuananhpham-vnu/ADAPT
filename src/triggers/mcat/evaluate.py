@@ -80,6 +80,7 @@ def _poison_keys(
     retriever: Retriever,
     *,
     frozen: torch.Tensor | None = None,
+    position: str = "suffix",
 ) -> torch.Tensor:
     """Poison keys for this snapshot.
 
@@ -103,8 +104,17 @@ def _poison_keys(
     embeds = retriever.model.get_input_embeddings()(trigger_ids)
     return encode_with_trigger_embeddings(
         retriever.model, retriever.tokenizer, context.poison_texts, embeds,
-        device=retriever.device, max_length=retriever.max_length,
+        device=retriever.device, max_length=retriever.max_length, position=position,
     )
+
+
+EVAL_BATCH = 64
+
+
+def _in_chunks(texts: list[str], encode, size: int = EVAL_BATCH) -> torch.Tensor:
+    """Encode ``texts`` ``size`` at a time; rows come back in the input order."""
+    return torch.cat([encode(texts[start:start + size])
+                      for start in range(0, len(texts), size)], dim=0)
 
 
 def evaluate_trigger(
@@ -114,8 +124,14 @@ def evaluate_trigger(
     *,
     score: str = "dot",
     frozen_poison: torch.Tensor | None = None,
+    position: str = "suffix",
 ) -> dict[str, Any]:
-    """Score one frozen trigger on this episode's locked evaluation queries."""
+    """Score one frozen trigger on this episode's locked evaluation queries.
+
+    ``position`` must be the position the trigger was optimized at.  Every row
+    carries it, so a mismatch shows up in the artifact instead of silently
+    halving a score.
+    """
     retriever = workspace.retriever
     texts = workspace.eval_texts(context.episode)
     ids = trigger["round_trip"]["re_encoded_ids"] or trigger["token_ids"]
@@ -123,18 +139,22 @@ def evaluate_trigger(
     top_k = context.episode.retrieval_top_k
 
     with torch.no_grad():
-        poison = _poison_keys(context, trigger_ids, retriever, frozen=frozen_poison)
+        poison = _poison_keys(context, trigger_ids, retriever, frozen=frozen_poison,
+                              position=position)
         embeds = retriever.model.get_input_embeddings()(trigger_ids)
-        triggered = encode_with_trigger_embeddings(
-            retriever.model, retriever.tokenizer, texts, embeds,
+        # Chunked: a whole-split evaluation (~1000 queries at 512 tokens) in one
+        # batch needs ~12 GB of attention scores per layer and cannot fit a T4.
+        triggered = _in_chunks(texts, lambda chunk: encode_with_trigger_embeddings(
+            retriever.model, retriever.tokenizer, chunk, embeds,
             device=retriever.device, max_length=retriever.max_length,
-        )
+            position=position,
+        ))
         # Trigger off: the poison records are already written, but the query
         # carries no trigger.  Anything retrieved here is a false activation.
-        untriggered = encode_plain(
-            retriever.model, retriever.tokenizer, texts,
+        untriggered = _in_chunks(texts, lambda chunk: encode_plain(
+            retriever.model, retriever.tokenizer, chunk,
             device=retriever.device, max_length=retriever.max_length,
-        )
+        ))
         on = retrieval_metrics(triggered, context.clean_keys, poison,
                                top_k=top_k, score=score)
         off = retrieval_metrics(untriggered, context.clean_keys, poison,
@@ -145,6 +165,7 @@ def evaluate_trigger(
         "domain": context.episode.domain,
         "split": context.episode.split,
         "poison_source": "frozen" if frozen_poison is not None else "refreshed",
+        "trigger_position": position,
         "trigger": trigger["trigger"],
         "round_trip_valid": bool(trigger["round_trip"]["valid"]),
         "trigger_on": on,
@@ -276,13 +297,15 @@ def evaluate(
         frozen = (None if frozen_poison is None
                   else frozen_poison.keys_for(context.episode.episode_id))
         row = evaluate_trigger(workspace, context, trigger, score=score,
-                               frozen_poison=frozen)
+                               frozen_poison=frozen,
+                               position=config.trigger_position)
         append_jsonl(output_dir / "evaluation.jsonl", row)
         rows.append(row)
 
     keys = [key for key in rows[0]["trigger_on"] if key != "queries"] if rows else []
     summary: dict[str, Any] = {
         "mode": config.mode, "variant": config.variant, "score": score,
+        "trigger_position": config.trigger_position,
         "poison_source": "frozen" if frozen_poison is not None else "refreshed",
         "episodes": len(rows),
         "trigger_on": {key: _mean(row["trigger_on"][key] for row in rows) for key in keys},

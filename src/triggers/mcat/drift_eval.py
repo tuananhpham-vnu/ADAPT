@@ -36,7 +36,7 @@ from src.triggers.mcat.evaluate import evaluate_trigger, generate_trigger
 from src.triggers.mcat.poison import FrozenPoison
 from src.triggers.mcat.runtime import EpisodeContext, Workspace
 from src.triggers.mcat.stats import macro_micro_worst, paired_bootstrap
-from src.triggers.mcat.train import TrainConfig, _logits_source, train
+from src.triggers.mcat.train import PER_EPISODE_MODES, TrainConfig, _logits_source, train
 
 DRIFT_ROWS = "drift_evaluation.jsonl"
 DRIFT_SUMMARY = "drift_evaluation.json"
@@ -81,18 +81,19 @@ def base_for_episode(
 
     VN — Vị thế của kẻ tấn công tại ``s0``: nó đang cầm module nào và đã thả
     trigger nào. Với các mode dùng chung một module thì đó là generator đã train,
-    khôi phục từ checkpoint. Riêng ``direct-logit`` không có gì để chuyển sang
-    snapshot mới, nên vị thế ``s0`` của nó là thứ mà một lần tìm kiếm per-episode
-    thật sự sẽ tạo ra: tối ưu đầy đủ trên snapshot gốc, và vẫn bị tính tiền như
-    mọi method khác.
+    khôi phục từ checkpoint. Riêng các mode per-episode (``direct-logit``,
+    ``hotflip``) không có gì để chuyển sang snapshot mới, nên vị thế ``s0`` của
+    chúng là thứ mà một lần tìm kiếm per-episode thật sự sẽ tạo ra: tối ưu đầy
+    đủ trên snapshot gốc, và vẫn bị tính tiền như mọi method khác.
 
     For the shared modes that is the trained generator, restored from the run's
-    checkpoint.  ``direct-logit`` has nothing to transfer, so its ``s0`` position
-    is what a per-episode search would actually have produced: a full
-    optimization on the base snapshot, paid for and recorded like any other.
+    checkpoint.  The per-episode modes (``direct-logit``, ``hotflip``) have
+    nothing to transfer, so their ``s0`` position is what a per-episode search
+    would actually have produced: a full optimization on the base snapshot,
+    paid for and recorded like any other.
     """
     context = workspace.context_for(episode)
-    if config.mode == "direct-logit":
+    if config.mode in PER_EPISODE_MODES:
         directory = Path(output_dir) / context.snapshot_id / "base-search"
         with ledger.phase(f"{context.snapshot_id}/base-search"):
             _, modules = train(
@@ -159,7 +160,8 @@ def prepare_bases(
             "produced; check that the run has a trained checkpoint"
         )
     return bases, freeze_poison(workspace.retriever, contexts, triggers,
-                                output_dir=output_dir)
+                                output_dir=output_dir,
+                                position=config.trigger_position)
 
 
 def _metric_key(metrics: dict[str, Any]) -> str:
@@ -239,7 +241,8 @@ def run_trajectory(
             )
             for result in results:
                 row = _score(workspace, context, snapshot, result, adapt_config,
-                             frozen=frozen, score=score, ledger=ledger)
+                             frozen=frozen, score=score, ledger=ledger,
+                             position=config.trigger_position)
                 append_jsonl(rows_path, row)
                 rows.append(row)
     return rows
@@ -255,6 +258,7 @@ def _score(
     frozen: torch.Tensor | None,
     score: str,
     ledger: CostLedger,
+    position: str = "suffix",
 ) -> dict[str, Any]:
     """Score a frozen trigger, billing the deployment separately from the search.
 
@@ -285,7 +289,7 @@ def _score(
     phase = f"{result.snapshot_id}/{result.method}/deploy"
     with ledger.phase(phase):
         scored = evaluate_trigger(workspace, context, result.trigger, score=score,
-                                  frozen_poison=frozen)
+                                  frozen_poison=frozen, position=position)
     entry = ledger.phase_named(phase)
     row["deploy_cost"] = {} if entry is None else entry.to_json()
     return row | {key: value for key, value in scored.items()

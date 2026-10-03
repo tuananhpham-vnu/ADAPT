@@ -166,7 +166,7 @@ class Workspace:
         return self._centers[snapshot_id]
 
     def context_for(
-        self, episode: Episode, snapshot: Snapshot | None = None
+        self, episode: Episode, snapshot: Snapshot | None = None, *, centers: bool = True
     ) -> EpisodeContext:
         """Materialize ``episode`` at ``snapshot`` (its own ``-s0`` when omitted).
 
@@ -174,6 +174,17 @@ class Workspace:
         ``Q_eval`` are properties of the episode and stay fixed across a
         trajectory: drifting the query distribution at the same time would make
         it impossible to attribute any change to memory state.
+
+        ``centers=False`` skips the GMM fit and leaves ``reference_centers``
+        empty.  Only the uniqueness loss reads them, so an evaluation-only
+        context does not need one -- and a probe that scores a frozen trigger
+        over dozens of snapshots would otherwise pay for a refit per snapshot
+        it never uses.  Never pass it on a context that will be trained on:
+        ``compute_uniqueness_loss`` would then see no centers at all.
+
+        VN — ``centers=False`` bỏ qua bước fit GMM. Chỉ loss uniqueness đọc tới
+        nó, nên context chỉ dùng để đánh giá thì không cần. Tuyệt đối không dùng
+        cho context sẽ đem đi train.
         """
         if snapshot is not None and snapshot.episode_id != episode.episode_id:
             raise ValueError(
@@ -197,7 +208,10 @@ class Workspace:
             episode=episode,
             memory_vectors=memory.to(device),
             support_vectors=support.to(device),
-            reference_centers=self.reference_centers(snapshot_id, memory).to(device),
+            reference_centers=(
+                self.reference_centers(snapshot_id, memory).to(device) if centers
+                else memory[:0].to(device)
+            ),
             optimization_texts=[text_of[qid] for qid in episode.optimization_qids],
             poison_texts=[text_of[qid] for qid in episode.poison_source_qids],
             snapshot_id=snapshot_id,

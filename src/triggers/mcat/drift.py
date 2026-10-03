@@ -174,6 +174,7 @@ def build_trajectory(
     growth: Sequence[float] = DEFAULT_GROWTH,
     ablations: Sequence[str] = ABLATION_KINDS,
     seed: int = 0,
+    tag_seed: bool = False,
 ) -> tuple[list[Snapshot], dict[str, Any]]:
     """Build ``s0`` plus one snapshot per growth level and per ablation.
 
@@ -188,6 +189,20 @@ def build_trajectory(
     sampled.  Anything that cannot be built -- no spare documents, a single
     domain in the run, no support similarities -- is recorded in the returned
     report with a reason instead of being skipped silently.
+
+    ``tag_seed`` puts ``seed`` into every snapshot id.  Leave it off and two
+    drift seeds produce the *same* ids, which collide in
+    ``drift_eval.row_key`` -- a resume would then hand back one seed's row for
+    another and the repeat would be a copy rather than a resample.  Any caller
+    that varies the seed must set it.  It is off by default because the ids are
+    part of ``trajectory_hash``, and turning it on unconditionally would refuse
+    every resume of a trajectory built before this argument existed.
+
+    VN — ``tag_seed`` nhét seed vào ``snapshot_id``. Không bật thì hai seed khác
+    nhau sinh ra id giống nhau, trùng khóa trong ``drift_eval.row_key``, và lúc
+    resume sẽ trả về dòng của seed khác — "lặp lại" biến thành "nhân bản". Ai đổi
+    seed thì bắt buộc phải bật. Mặc định tắt vì id nằm trong ``trajectory_hash``,
+    bật vô điều kiện sẽ làm mọi trajectory dựng trước đây không resume được.
     """
     for value in growth:
         if value <= 0:
@@ -207,15 +222,19 @@ def build_trajectory(
     snapshots = [base_snapshot(episode)]
     report: dict[str, Any] = {
         "base_documents": len(base), "pool": len(available),
-        "mixture_pool": len(foreign), "skipped": {},
+        "mixture_pool": len(foreign), "drift_seed": seed, "skipped": {},
     }
+
+    suffix = f"-d{seed}" if tag_seed else ""
 
     def emit(kind: str, doc_ids: list[str], note: dict[str, Any], growth_value: float) -> None:
         snapshots.append(Snapshot(
-            snapshot_id=f"{episode.episode_id}-{kind}", episode_id=episode.episode_id,
+            snapshot_id=f"{episode.episode_id}-{kind}{suffix}",
+            episode_id=episode.episode_id,
             domain=episode.domain, split=episode.split, kind=kind.split("-")[0],
             growth=growth_value, doc_ids=sorted(doc_ids),
-            parent_snapshot_id=episode.snapshot_id, note=note,
+            parent_snapshot_id=episode.snapshot_id,
+            note=note | {"drift_seed": seed},
         ))
 
     for value in growth:

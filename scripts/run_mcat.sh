@@ -25,6 +25,7 @@
 #
 # Arms (see _idea/memory_conditioned_generator_Q1_A_star.md section 9):
 #   m1      memory+query generator ............ the method
+#   b1      HotFlip, per episode (AgentPoison) . the published search, same budget
 #   b2      direct logits, per episode ........ what the optimizer alone buys
 #   b3      one universal logits matrix ....... is a single trigger already enough
 #   b4      unconditional generator ........... is the network just memorizing one answer
@@ -143,6 +144,7 @@ DRIFT_FLAGS="--growth $GROWTH $METHOD_FLAGS --write-policy $WRITE_POLICY \
 arm_flags () {
   case "$1" in
     m1)     echo "--mode generator --variant memory+query --lambda-ret 0.0" ;;
+    b1)     echo "--mode hotflip --hotflip-candidates ${HOTFLIP_CANDIDATES:-100} --lambda-ret 0.0" ;;
     b2)     echo "--mode direct-logit --lambda-ret 0.0" ;;
     b3)     echo "--mode universal-logit --lambda-ret 0.0" ;;
     b4)     echo "--mode generator --variant none --lambda-ret 0.0" ;;
@@ -297,7 +299,7 @@ PY
 ARMS=("$@")
 [ ${#ARMS[@]} -eq 0 ] && ARMS=("m1")
 if [ "${ARMS[0]}" = "all" ]; then
-  ARMS=(m1 b2 b3 b4 b5 b6 margin)
+  ARMS=(m1 b1 b2 b3 b4 b5 b6 margin)
 fi
 
 if [ "${ARMS[0]}" = "preflight" ]; then
