@@ -204,6 +204,61 @@ class GrowthProtocolTests(unittest.TestCase):
             GrowthProbeConfig(growth=(0.0,))
 
 
+class TargetedGrowthTests(unittest.TestCase):
+    """support / triggered growth: the documents nearest the queries, not random ones."""
+
+    def setUp(self):
+        self.episode = make_episode([row["doc_id"] for row in doc_rows("base", 8)])
+        self.pool = doc_rows("pool", 24)
+        self.assignment = {row["family"]: "test"
+                           for row in doc_rows("base", 8) + self.pool}
+        # pool-023 scores highest, pool-000 lowest.
+        self.scores = {row["doc_id"]: float(index) for index, row in enumerate(self.pool)}
+
+    def _build(self, **overrides):
+        from src.triggers.mcat.drift import build_targeted_growth
+
+        kwargs = dict(assignment=self.assignment, selection="triggered",
+                      growth=(0.25, 0.50, 1.00))
+        kwargs.update(overrides)
+        return build_targeted_growth(self.episode, self.pool, self.scores, **kwargs)[0]
+
+    def test_the_highest_scoring_documents_arrive_first(self):
+        grown = {s.growth: set(s.doc_ids) - set(self.episode.doc_ids)
+                 for s in self._build() if s.kind != "base"}
+        self.assertEqual(grown[0.25], {"pool-023", "pool-022"})
+        self.assertEqual(len(grown[1.0]), 8)
+
+    def test_levels_are_nested(self):
+        grown = {s.growth: set(s.doc_ids) for s in self._build() if s.kind != "base"}
+        self.assertTrue(grown[0.25] < grown[0.5] < grown[1.0])
+
+    def test_a_scored_document_outside_the_spare_pool_is_refused(self):
+        self.scores["base-000"] = 99.0  # already in memory: not a spare document
+        with self.assertRaisesRegex(ValueError, "spare pool"):
+            self._build()
+
+    def test_an_unknown_selection_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "selection"):
+            self._build(selection="random")
+
+    def test_a_targeted_config_takes_exactly_one_seed(self):
+        with self.assertRaisesRegex(ValueError, "deterministic"):
+            GrowthProbeConfig(selection="triggered", seeds=(0, 1))
+        GrowthProbeConfig(selection="triggered", seeds=(0,))
+
+    def test_the_random_fingerprint_is_unchanged_by_the_new_field(self):
+        """Finished random runs must still resume: their row keys hash this."""
+        from src.triggers.artifacts import stable_hash
+
+        config = GrowthProbeConfig()
+        legacy = {"growth": config.growth, "seeds": config.seeds,
+                  "min_base_hit": config.min_base_hit, "score": config.score}
+        self.assertEqual(config.fingerprint(), stable_hash(legacy))
+        self.assertNotEqual(GrowthProbeConfig(selection="support", seeds=(0,)).fingerprint(),
+                            GrowthProbeConfig(selection="triggered", seeds=(0,)).fingerprint())
+
+
 class GrowthSummaryTests(unittest.TestCase):
     """``summarize_growth``: what it will and will not call a decay."""
 
@@ -279,6 +334,21 @@ class GrowthSummaryTests(unittest.TestCase):
         summary = summarize_growth(rows, iterations=200)
         self.assertEqual(summary["excluded_episodes"], 1)
         self.assertIn("min_base_hit", summary["excluded"][0])
+
+    def test_a_deterministic_selection_can_decay_without_a_seed_spread(self):
+        """One seed has no spread; the gate must not turn every drop inconclusive."""
+        rows = self._rows(base=0.9, levels={0.25: (0.7, 0.0), 0.5: (0.5, 0.0),
+                                            1.0: (0.3, 0.0)}, seeds=(0,))
+        self.assertEqual(summarize_growth(rows, iterations=400)["verdict"], "inconclusive")
+        summary = summarize_growth(rows, iterations=400, selection="triggered")
+        self.assertEqual(summary["verdict"], "decays")
+        self.assertEqual(summary["selection"], "triggered")
+
+    def test_a_stable_targeted_verdict_names_its_selection(self):
+        rows = self._rows(base=0.9, levels={1.0: (0.9, 0.0)}, seeds=(0,))
+        summary = summarize_growth(rows, iterations=200, selection="triggered")
+        self.assertEqual(summary["verdict"], "stable")
+        self.assertIn("TRIGGERED", summary["reason"])
 
     def test_no_base_row_is_no_data_rather_than_a_verdict(self):
         summary = summarize_growth([], iterations=10)
@@ -452,6 +522,25 @@ class ProbeCliTests(unittest.TestCase):
         grown = next(row for row in rows if row["kind"] == "growth")
         self.assertGreater(grown["documents"], base["documents"])
         self.assertLess(grown["poison_fraction"], base["poison_fraction"])
+
+    def test_targeted_growth_writes_its_own_directory(self):
+        self._run("prepare-episodes", "index")
+        for selection in ("support", "triggered"):
+            self._run("probe-growth", extra=("--split", "test", "--drift-seed", "0",
+                                             "--growth", "0.25", "1.0",
+                                             "--growth-selection", selection,
+                                             "--bootstrap-iterations", "200"))
+            directory = self.directory / f"probes/growth_{selection}-suffix-test"
+            rows = [json.loads(line) for line in
+                    (directory / GROWTH_ROWS).read_text(encoding="utf-8").splitlines()]
+            episodes = {row["episode_id"] for row in rows}
+            self.assertEqual(len(rows), 3 * len(episodes))  # base + 2 levels
+            grown = [row for row in rows if row["kind"] != "base"]
+            self.assertTrue(all(row["kind"] == "distractor" for row in grown))
+            summary = json.loads((directory / "probe_growth.json").read_text("utf-8"))
+            self.assertEqual(summary["selection"], selection)
+        self.assertFalse((self.directory / "probes/growth-suffix-test").exists(),
+                         "a targeted run wrote into the random probe's directory")
 
     def test_resuming_the_growth_probe_recomputes_nothing(self):
         self._run("prepare-episodes", "index")

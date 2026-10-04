@@ -44,6 +44,47 @@ báo cáo nguyên vẹn. Quyết định của người dùng: tập trung Agent
 3. R2 chỉ được coi là bị bác bỏ khi verdict là `decays`; R1 chỉ khi `conditioning-helps`.
 4. Báo `off_hit` (false activation) cạnh mọi con số ASR.
 
+> **Kết quả lần chạy 2 (2026-10-04) → [`p0_run2_agentdriver_results.md`](p0_run2_agentdriver_results.md).**
+> R2 `stable` (base hit 0.984), R1 `universal-suffices` (B2 0.978 vs B3 0.996, paired
+> −0.018 [−0.036, −0.003] — universal **thắng có ý nghĩa**). Cả hai dính **cờ trần** →
+> không cái nào bị bác bỏ. False activation = 0 trên AD. P1 `transfer`: `middle` tụt
+> −0.081 [−0.129, −0.034] và nhận ít attention `[CLS]` nhất. P1 `reoptimize` chưa xong
+> (kernel chạm 12 h).
+
+### Lần chạy 3 — R2 với memory thêm vào **có chủ đích** (chốt TRƯỚC khi chạy, 2026-10-04)
+
+Câu hỏi: lần 2 cho thấy thêm tài liệu **ngẫu nhiên** không làm trigger yếu đi. Vậy thêm
+những tài liệu **chen vào đúng vùng trigger đẩy query tới** thì sao? Generator chỉ có
+lý do tồn tại nếu trigger cũ suy giảm khi memory thay đổi.
+
+Thiết lập giống hệt lần 2 (AD, 6 token, 2000 docs, 1000 query eval, 16 episode test,
+400 step, top-5, 5 poison đóng băng ở `s0`), trừ cách chọn tài liệu thêm vào
+(`--growth-selection`, `build_targeted_growth`):
+
+| selection | Tài liệu thêm vào | Vai trò |
+|---|---|---|
+| `support` | lành, điểm max cao nhất với `Q_sup` **chưa** gắn trigger | distractor tự nhiên |
+| `triggered` | lành, điểm max cao nhất với `Q_sup` **đã** gắn trigger | **chặn trên** — xấu nhất mà memory lành có thể gây ra |
+
+Cả hai chỉ chấm trên `Q_sup` (32 query), **không** dùng `Q_eval`; tất định (1 seed);
+các mức lồng nhau (top 25% ⊂ top 50% ⊂ top 100%); chỉ lấy tài liệu trong split test.
+
+**Tiêu chí đọc (chốt trước):**
+1. Verdict của code: `decays` cần CI ghép cặp của drop ở +100% không chứa 0 **và** đơn
+   điệu. Không có cổng seed-spread vì chọn tất định; nhiễu còn lại (episode nào được
+   bốc) do bootstrap theo episode gánh.
+2. **Ngưỡng thực tế:** chỉ gọi là suy giảm *đáng kể* nếu drop `hit@5` ở +100% ≥ **0.05**.
+   `decays` mà drop < 0.05 → ghi "suy giảm có ý nghĩa thống kê nhưng nhỏ", không đủ để
+   biện minh cho generator.
+3. Base gần trần **không** chặn được phát hiện ở đây: R2 đo mức tụt **từ** base.
+4. Đọc kết luận:
+   - `triggered` **không** suy giảm đáng kể → R2 đúng kể cả ở kịch bản xấu nhất → **bỏ
+     hướng generator** cho amortization theo memory drift.
+   - `triggered` suy giảm, `support` không → chỉ memory "đối kháng" làm hại; drift tự
+     nhiên không → luận điểm amortization rất yếu.
+   - `support` suy giảm đáng kể → bước kế: `scratch` trên memory mới có phục hồi không,
+     và generator có rẻ hơn không. Chỉ khi cả hai "có" mới train generator.
+
 Toàn bộ luận điểm của MCAT (memory-conditioned trigger + amortization) chỉ tồn
 tại nếu **cả hai** mệnh đề sau đều SAI:
 
@@ -219,7 +260,10 @@ dùng chung một giả định vị trí. Không có biến điều khiển v�
   ở hai module và không có gì khác chặn việc đo nhầm sang token query.
 
 ### Còn phải chạy
-- [ ] `POSITION_MODE=transfer` rồi `POSITION_MODE=reoptimize` trên DPR thật. Hai chế
+- [x] `POSITION_MODE=transfer` trên DPR thật, AD 6 token (2026-10-04): `middle` thấp nhất
+  cả ASR lẫn attention — xem [`p0_run2_agentdriver_results.md`](p0_run2_agentdriver_results.md).
+- [ ] `POSITION_MODE=reoptimize` trên AD — lần 2 chạm 12 h ở step 13/400, chưa có số.
+- [ ] (gốc) `POSITION_MODE=transfer` rồi `POSITION_MODE=reoptimize` trên DPR thật. Hai chế
   độ trả lời hai câu khác nhau: "cùng một trigger thì vị trí quan trọng cỡ nào" và
   "vị trí nào thực sự tốt hơn". Không gộp thành một số.
 - [ ] Quét thêm theo **độ dài trigger** (`--trigger-tokens`) để tách "vị trí" khỏi

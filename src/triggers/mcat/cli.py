@@ -510,12 +510,15 @@ def probe_growth(args: argparse.Namespace) -> Path:
     probe = GrowthProbeConfig(
         growth=tuple(args.growth), seeds=tuple(args.drift_seed),
         min_base_hit=args.min_base_hit, score=args.score,
+        selection=args.growth_selection,
     )
     target = [episode for episode in episodes if episode.split == args.split]
     if not target:
         raise ValueError(f"no episodes in split {args.split!r}")
 
-    directory = _probe_dir(args, "growth")
+    # random keeps its old directory name so finished runs still resume there.
+    name = "growth" if probe.selection == "random" else f"growth_{probe.selection}"
+    directory = _probe_dir(args, name)
     directory.mkdir(parents=True, exist_ok=True)
     contract = _probe_contract(args, manifest, workspace, probe="growth", config=probe)
     _lock_probe_config(directory / "probe_config.json", contract)
@@ -531,7 +534,8 @@ def probe_growth(args: argparse.Namespace) -> Path:
     # Summarized from the file, not from the rows this process produced, so a
     # resumed run reports the whole probe rather than the part it recomputed.
     summary = summarize_growth(load_rows(directory / GROWTH_ROWS),
-                               iterations=args.bootstrap_iterations, seed=args.seed)
+                               iterations=args.bootstrap_iterations, seed=args.seed,
+                               selection=probe.selection)
     summary["directory"] = str(directory)
     atomic_json(directory / GROWTH_SUMMARY, summary)
     atomic_json(directory / "costs.json", ledger.to_json())
@@ -883,6 +887,12 @@ def add_common(parser: argparse.ArgumentParser) -> None:
                         help="skip episodes whose trigger does not reach this hit@K on "
                              "the undrifted snapshot. Measured before any growth, so "
                              "it cannot select for decay")
+    probes.add_argument("--growth-selection", default="random",
+                        choices=("random", "support", "triggered"),
+                        help="probe-growth: which benign documents arrive. random = "
+                             "same-domain resample; support = nearest the clean Q_sup; "
+                             "triggered = nearest Q_sup carrying the trigger (upper "
+                             "bound). The last two are deterministic: one --drift-seed")
     probes.add_argument("--position", action="append", choices=POSITIONS, default=None,
                         help="repeatable; defaults to suffix/prefix/both/middle")
     probes.add_argument("--position-mode", choices=("transfer", "reoptimize"),

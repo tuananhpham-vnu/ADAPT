@@ -51,7 +51,7 @@ from torch import nn
 
 from src.triggers.artifacts import append_jsonl, read_json, stable_hash
 from src.triggers.mcat.costs import CostLedger
-from src.triggers.mcat.drift import Snapshot, build_trajectory
+from src.triggers.mcat.drift import Snapshot, build_targeted_growth, build_trajectory
 from src.triggers.mcat.drift_eval import load_rows, prepare_bases
 from src.triggers.mcat.encoding import POSITIONS, POSITION_COPIES
 from src.triggers.mcat.episodes import Episode, family_key
@@ -71,6 +71,7 @@ R1_SUMMARY = "probe_universal.json"
 PROBE_GROWTH = (0.25, 0.50, 1.00)
 #: Five resamples of the benign documents added at each level.
 PROBE_SEEDS = (0, 1, 2, 3, 4)
+GROWTH_SELECTIONS = ("random", "support", "triggered")
 
 
 # --------------------------------------------------------------------------- #
@@ -136,8 +137,19 @@ class GrowthProbeConfig:
     #: any drift, so it cannot select for decay.
     min_base_hit: float = 0.0
     score: str = "dot"
+    #: Which benign documents arrive: ``random`` (same-domain resample),
+    #: ``support`` (nearest the clean Q_sup) or ``triggered`` (nearest Q_sup
+    #: carrying the trigger -- the upper bound).  See ``build_targeted_growth``.
+    selection: str = "random"
 
     def __post_init__(self) -> None:
+        if self.selection not in GROWTH_SELECTIONS:
+            raise ValueError(
+                f"selection must be one of {GROWTH_SELECTIONS}, got {self.selection!r}")
+        if self.selection != "random" and len(self.seeds) != 1:
+            raise ValueError(
+                f"selection {self.selection!r} is deterministic: pass exactly one drift "
+                f"seed, got {self.seeds}. Extra seeds would be copies, not resamples")
         if not self.growth:
             raise ValueError("the growth probe needs at least one growth level")
         if any(value <= 0 for value in self.growth):
@@ -150,7 +162,63 @@ class GrowthProbeConfig:
             raise ValueError(f"min_base_hit must be in [0, 1], got {self.min_base_hit}")
 
     def fingerprint(self) -> str:
-        return stable_hash(asdict(self))
+        fields = asdict(self)
+        if fields["selection"] == "random":
+            # Keeps every row key of the random probe as it was before the field
+            # existed, so runs already on disk still resume.
+            del fields["selection"]
+        return stable_hash(fields)
+
+
+def targeted_scores(
+    workspace: Workspace,
+    episode: Episode,
+    context: EpisodeContext,
+    trigger: dict[str, Any],
+    pool: Sequence[dict[str, Any]],
+    *,
+    selection: str,
+    position: str = "suffix",
+) -> dict[str, float]:
+    """Score each spare document by its best dot product with one support query.
+
+    VN — Điểm của một tài liệu = tích vô hướng lớn nhất với một query trong
+    ``Q_sup`` (chưa / đã gắn trigger tùy ``selection``). Lấy max chứ không lấy
+    trung bình: một tài liệu chỉ cần chen vào top-k của **một** query là đủ gây hại.
+
+    Max rather than the centroid ``support_similarity`` uses: a document only has
+    to crowd one query's top-k to cost the trigger a hit, and a centroid would
+    rank highest the documents that are mediocre for every query.
+    """
+    if selection not in ("support", "triggered"):
+        raise ValueError(f"no targeted scores for selection {selection!r}")
+    from src.triggers.mcat.cache import select_rows
+    from src.triggers.mcat.encoding import encode_with_trigger_embeddings
+
+    retriever = workspace.retriever
+    candidates = [row["doc_id"] for row in pool]
+    if not candidates:
+        return {}
+    order = [row["doc_id"] for row in workspace.documents(episode.domain)]
+    documents = select_rows(workspace.document_vectors(episode.domain), order,
+                            candidates).to(retriever.device).float()
+    if selection == "support":
+        queries = context.support_vectors.float()
+    else:
+        text_of = {row["qid"]: row["question"] for row in workspace.queries(episode.domain)}
+        texts = [text_of[qid] for qid in episode.support_qids]
+        ids = trigger["round_trip"]["re_encoded_ids"] or trigger["token_ids"]
+        with torch.no_grad():
+            embeds = retriever.model.get_input_embeddings()(
+                torch.tensor(ids, device=retriever.device))
+            queries = torch.cat([
+                encode_with_trigger_embeddings(
+                    retriever.model, retriever.tokenizer, texts[start:start + 64], embeds,
+                    device=retriever.device, max_length=retriever.max_length,
+                    position=position)
+                for start in range(0, len(texts), 64)], dim=0).float()
+    best = (documents @ queries.to(documents.device).T).max(dim=1).values
+    return {identifier: float(score) for identifier, score in zip(candidates, best)}
 
 
 def probe_row_key(episode_id: str, snapshot_id: str, probe: str, contract: str) -> str:
@@ -256,10 +324,20 @@ def growth_probe(
         assignment = workspace.assignment(episode.domain, ratios=tuple(ratios),
                                           seed=split_seed)
         for drift_seed in probe.seeds:
-            snapshots, report = build_trajectory(
-                episode, pool, assignment=assignment, growth=probe.growth,
-                ablations=(), seed=drift_seed, tag_seed=True,
-            )
+            if probe.selection == "random":
+                snapshots, report = build_trajectory(
+                    episode, pool, assignment=assignment, growth=probe.growth,
+                    ablations=(), seed=drift_seed, tag_seed=True,
+                )
+            else:
+                # Scored on Q_sup only (clean or triggered); Q_eval stays locked.
+                scores = targeted_scores(
+                    workspace, episode, base_context, trigger, pool,
+                    selection=probe.selection, position=config.trigger_position)
+                snapshots, report = build_targeted_growth(
+                    episode, pool, scores, assignment=assignment,
+                    selection=probe.selection, growth=probe.growth, seed=drift_seed,
+                )
             for snapshot in snapshots:
                 if snapshot.kind == "base":
                     continue  # already scored once; it does not depend on the seed
@@ -330,8 +408,14 @@ def summarize_growth(
     *,
     iterations: int = 10_000,
     seed: int = 0,
+    selection: str = "random",
 ) -> dict[str, Any]:
     """Per-level means, paired drops, and the seed-spread check that gates them.
+
+    ``selection`` other than ``random`` is deterministic: there is one drift
+    seed and no resample spread, so the seed-spread gate does not apply.  The
+    remaining noise is which episodes were drawn, and the episode bootstrap
+    already carries that.
 
     VN — Trả lời R2. Ba thứ phải đồng thời đúng mới gọi là "suy giảm rõ và nhất
     quán": (1) khoảng tin cậy ghép cặp của mức drop không chứa 0, (2) on_hit đơn
@@ -403,29 +487,39 @@ def summarize_growth(
         significant = bool(drop.get("significant")) and (drop.get("ci_low") or 0.0) > 0
         effect = drop.get("mean_difference")
         spread = last["seed_spread"]
-        beats_noise = (
+        deterministic = selection != "random"
+        beats_noise = deterministic or (
             effect is not None and spread is not None and abs(effect) > spread
         )
         if significant and monotone and beats_noise:
             verdict = "decays"
             reason = ("R2 rejected: the frozen trigger loses ground monotonically, the "
-                      "paired interval excludes zero, and the effect exceeds the spread "
-                      "across drift seeds")
+                      "paired interval excludes zero, and "
+                      + ("the selection is deterministic (no seed spread to beat)"
+                         if deterministic else
+                         "the effect exceeds the spread across drift seeds")
+                      + f" [selection={selection}]")
         elif significant and not beats_noise:
             verdict = "inconclusive"
             reason = (f"the drop ({effect}) does not exceed the spread across drift "
                       f"seeds ({spread}); one data split would have called this a result")
         elif not significant:
             verdict = "stable"
+            scope = {
+                "random": "Holds for same-domain growth only -- it says nothing about "
+                          "mixture or distractor drift",
+                "support": "Holds for benign documents nearest the clean support queries",
+                "triggered": "Holds even for benign documents nearest the TRIGGERED "
+                             "support queries -- the upper bound for benign growth",
+            }.get(selection, "")
             reason = ("no evidence of decay in this setting: the paired interval for the "
-                      "largest growth level contains zero. Holds for same-domain growth "
-                      "only -- it says nothing about mixture or distractor drift")
+                      f"largest growth level contains zero. {scope}")
         else:
             verdict = "inconclusive"
             reason = "the means are not monotone in the growth level"
 
     return {
-        "verdict": verdict, "reason": reason,
+        "verdict": verdict, "reason": reason, "selection": selection,
         "episodes": len(base), "excluded_episodes": len(excluded),
         "excluded": [row.get("reason") for row in excluded],
         "base": {"on_hit": base_on,

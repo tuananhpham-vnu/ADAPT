@@ -85,6 +85,15 @@ DRIFT_SEEDS="${DRIFT_SEEDS:-0 1 2 3 4}"
 # Keep only episodes whose trigger already works before any drift.  Measured on
 # the base snapshot, so it cannot select for decay.  0.0 keeps everything.
 MIN_BASE_HIT="${MIN_BASE_HIT:-0.0}"
+# Which benign documents the growth adds: random | support | triggered.
+# support/triggered rank the spare pool against Q_sup (clean / carrying the
+# trigger) and are deterministic -- run them with DRIFT_SEEDS=0.
+GROWTH_SELECTION="${GROWTH_SELECTION:-random}"
+if [ "$GROWTH_SELECTION" = "random" ]; then
+  GROWTH_DIR="growth"
+else
+  GROWTH_DIR="growth_$GROWTH_SELECTION"
+fi
 POSITIONS="${POSITIONS:-suffix prefix both middle}"
 POSITION_MODE="${POSITION_MODE:-transfer}"
 POSITION_BASELINE="${POSITION_BASELINE:-suffix}"
@@ -226,10 +235,10 @@ prepare_arm () {
 
 probe_r2 () {
   echo ""
-  echo ">> P0-R2: frozen trigger against a growing memory"
+  echo ">> P0-R2: frozen trigger against a growing memory (selection: $GROWTH_SELECTION)"
   local out log
   out=$(arm_dir b2)
-  log="$RUN_ROOT/r2.console"
+  log="$RUN_ROOT/r2-$GROWTH_SELECTION.console"
   local common="--output-dir $out $EPISODE_FLAGS $RETRIEVER_FLAGS"
   (
     set -e
@@ -237,12 +246,13 @@ probe_r2 () {
     $PYTHON -m src.triggers.mcat probe-growth $common $TRAIN_FLAGS \
       --mode direct-logit --split "$PROBE_SPLIT" --growth $GROWTH \
       --drift-seed $SEED_FLAGS --min-base-hit "$MIN_BASE_HIT" \
+      --growth-selection "$GROWTH_SELECTION" \
       --bootstrap-iterations "$BOOTSTRAP" $RESUME_FLAG
   ) > "$log" 2>&1
   if [ $? -ne 0 ]; then
     echo "!! r2 failed; last lines of $log:"; tail -20 "$log"; return 1
   fi
-  echo "   done -> $out/probes/growth-suffix-$PROBE_SPLIT/probe_growth.json"
+  echo "   done -> $out/probes/$GROWTH_DIR-suffix-$PROBE_SPLIT/probe_growth.json"
 }
 
 probe_r1 () {
@@ -301,7 +311,7 @@ summarize () {
   echo ""
   echo "===== P0 verdicts ($RUN_ROOT, seed $SEED, split $PROBE_SPLIT) ====="
   RUN_ROOT="$RUN_ROOT" SEED="$SEED" SPLIT="$PROBE_SPLIT" \
-  POSITION_MODE="$POSITION_MODE" $PYTHON - <<'PY'
+  POSITION_MODE="$POSITION_MODE" GROWTH_DIR="$GROWTH_DIR" $PYTHON - <<'PY'
 import json, os
 from pathlib import Path
 
@@ -315,9 +325,11 @@ def load(path):
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
-growth = load(b2 / "probes" / f"growth-suffix-{split}" / "probe_growth.json")
+growth = load(b2 / "probes" / f"{os.environ['GROWTH_DIR']}-suffix-{split}"
+              / "probe_growth.json")
 if growth:
-    print(f"  R2  verdict: {growth['verdict']}")
+    print(f"  R2  verdict: {growth['verdict']}  "
+          f"(selection: {growth.get('selection', 'random')})")
     print(f"      {growth.get('reason')}")
     base = growth.get("base") or {}
     print(f"      base on_hit {base.get('on_hit')!r}  off_hit {base.get('off_hit')!r}"

@@ -291,6 +291,75 @@ def build_trajectory(
     return snapshots, report
 
 
+TARGETED_SELECTIONS = ("support", "triggered")
+
+
+def build_targeted_growth(
+    episode: Episode,
+    pool: Sequence[dict[str, Any]],
+    scores: dict[str, float],
+    *,
+    assignment: dict[str, str],
+    selection: str,
+    growth: Sequence[float] = DEFAULT_GROWTH,
+    seed: int = 0,
+) -> tuple[list[Snapshot], dict[str, Any]]:
+    """Grow the memory with the benign documents that score highest, not random ones.
+
+    VN — Phình memory bằng tài liệu lành **gần query nhất** thay vì ngẫu nhiên.
+    ``support``: gần ``Q_sup`` chưa gắn trigger (distractor tự nhiên).
+    ``triggered``: gần ``Q_sup`` **đã** gắn trigger — kịch bản xấu nhất cho trigger,
+    là một **chặn trên**, không mô tả drift tự nhiên. Không bao giờ dùng ``Q_eval``.
+
+    Random growth only thickens the benign cloud; a trigger that moved the query
+    away from it barely notices.  These levels add exactly the documents that
+    would compete with the poison: ``support`` ranks them against the clean
+    support queries (a natural distractor), ``triggered`` against the same
+    queries carrying the frozen trigger -- the worst case a benign memory can
+    present, so it bounds R2 from above rather than describing natural drift.
+
+    Levels are nested (the top 25% is inside the top 50%), deterministic, and
+    tie-broken by id.  ``seed`` is recorded but chooses nothing.
+    """
+    if selection not in TARGETED_SELECTIONS:
+        raise ValueError(f"selection must be one of {TARGETED_SELECTIONS}, got {selection!r}")
+    for value in growth:
+        if value <= 0:
+            raise ValueError(f"growth levels must be positive, got {value}")
+    _check_pool(pool, assignment, episode.split, "pool")
+
+    base = sorted(episode.doc_ids)
+    allowed = {row["doc_id"] for row in pool} - set(base)
+    unknown = sorted(set(scores) - allowed)
+    if unknown:
+        raise ValueError(
+            f"{len(unknown)} scored documents are not in this split's spare pool "
+            f"(e.g. {unknown[0]!r}); a targeted snapshot may not reach outside it"
+        )
+    ranked = sorted(scores, key=lambda key: (-scores[key], key))
+    snapshots = [base_snapshot(episode)]
+    report: dict[str, Any] = {"base_documents": len(base), "pool": len(ranked),
+                              "drift_seed": seed, "selection": selection, "skipped": {}}
+    for value in growth:
+        label = f"{selection}-{int(round(value * 100))}"
+        wanted = max(1, int(round(value * len(base))))
+        if not ranked:
+            report["skipped"][label] = {"reason": "no scored documents in this split"}
+            continue
+        added = ranked[:wanted]
+        snapshots.append(Snapshot(
+            snapshot_id=f"{episode.episode_id}-{label}-d{seed}",
+            episode_id=episode.episode_id, domain=episode.domain, split=episode.split,
+            kind="distractor", growth=value, doc_ids=sorted(base + added),
+            parent_snapshot_id=episode.snapshot_id,
+            note={"selection": selection, "selected_on": "support_queries",
+                  "requested": wanted, "added": len(added),
+                  "truncated": len(added) < wanted, "pool": len(ranked),
+                  "min_added_score": scores[added[-1]], "drift_seed": seed},
+        ))
+    return snapshots, report
+
+
 def trajectory_hash(snapshots: Sequence[Snapshot]) -> str:
     return stable_hash([snapshot.to_json() for snapshot in snapshots])
 
