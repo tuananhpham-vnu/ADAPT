@@ -94,6 +94,10 @@ if [ "$GROWTH_SELECTION" = "random" ]; then
 else
   GROWTH_DIR="growth_$GROWTH_SELECTION"
 fi
+# contam: self = the agent logs its own triggered interactions; rival = other
+# attackers' poison.  CONTAM_LEVELS empty -> the per-scenario default counts.
+CONTAM_SCENARIO="${CONTAM_SCENARIO:-self}"
+CONTAM_LEVELS="${CONTAM_LEVELS:-}"
 POSITIONS="${POSITIONS:-suffix prefix both middle}"
 POSITION_MODE="${POSITION_MODE:-transfer}"
 POSITION_BASELINE="${POSITION_BASELINE:-suffix}"
@@ -255,6 +259,29 @@ probe_r2 () {
   echo "   done -> $out/probes/$GROWTH_DIR-suffix-$PROBE_SPLIT/probe_growth.json"
 }
 
+probe_contam () {
+  echo ""
+  echo ">> P0-R2: trigger-carrying records join the memory (scenario: $CONTAM_SCENARIO)"
+  local out log
+  out=$(arm_dir b2)
+  log="$RUN_ROOT/contam-$CONTAM_SCENARIO.console"
+  local common="--output-dir $out $EPISODE_FLAGS $RETRIEVER_FLAGS"
+  local levels=""
+  [ -n "$CONTAM_LEVELS" ] && levels="--contamination-level $CONTAM_LEVELS"
+  (
+    set -e
+    prepare_arm b2 direct-logit
+    $PYTHON -m src.triggers.mcat probe-contamination $common $TRAIN_FLAGS \
+      --mode direct-logit --split "$PROBE_SPLIT" --scenario "$CONTAM_SCENARIO" \
+      $levels --drift-seed $SEED_FLAGS \
+      --bootstrap-iterations "$BOOTSTRAP" $RESUME_FLAG
+  ) > "$log" 2>&1
+  if [ $? -ne 0 ]; then
+    echo "!! contam failed; last lines of $log:"; tail -20 "$log"; return 1
+  fi
+  echo "   done -> $out/probes/contam_$CONTAM_SCENARIO-suffix-$PROBE_SPLIT/probe_contamination.json"
+}
+
 probe_r1 () {
   echo ""
   echo ">> P0-R1: one universal trigger (b3) against per-episode (b2)"
@@ -311,7 +338,8 @@ summarize () {
   echo ""
   echo "===== P0 verdicts ($RUN_ROOT, seed $SEED, split $PROBE_SPLIT) ====="
   RUN_ROOT="$RUN_ROOT" SEED="$SEED" SPLIT="$PROBE_SPLIT" \
-  POSITION_MODE="$POSITION_MODE" GROWTH_DIR="$GROWTH_DIR" $PYTHON - <<'PY'
+  POSITION_MODE="$POSITION_MODE" GROWTH_DIR="$GROWTH_DIR" \
+  CONTAM_SCENARIO="$CONTAM_SCENARIO" $PYTHON - <<'PY'
 import json, os
 from pathlib import Path
 
@@ -342,6 +370,21 @@ if growth:
               f"  seed_spread {level['seed_spread']!r}")
 else:
     print("  R2  (not run)")
+
+scenario = os.environ["CONTAM_SCENARIO"]
+contam = load(b2 / "probes" / f"contam_{scenario}-suffix-{split}"
+              / "probe_contamination.json")
+if contam:
+    print(f"  R2c verdict: {contam['verdict']}  (scenario: {scenario}, "
+          f"level = {contam.get('level_unit')})")
+    base = contam.get("base") or {}
+    print(f"      base on_hit {base.get('on_hit')!r}")
+    for key, level in contam.get("levels", {}).items():
+        paired = level["drop_vs_base"]
+        print(f"      +{key:>4}  on_hit {level['on_hit']!r:>22}"
+              f"  drop {paired['mean_difference']!r:>22}"
+              f"  ci [{paired['ci_low']!r}, {paired['ci_high']!r}]"
+              f"  seed_spread {level['seed_spread']!r}")
 
 universal = load(b2 / "probe_universal.json")
 if universal:
@@ -381,8 +424,8 @@ fi
 
 for probe in "${PROBES[@]}"; do
   case "$probe" in
-    r2|r1|position) ;;
-    *) echo "!! unknown probe: $probe (choose r2, r1, position, all, preflight)" >&2
+    r2|r1|position|contam) ;;
+    *) echo "!! unknown probe: $probe (choose r2, r1, position, contam, all, preflight)" >&2
        exit 1 ;;
   esac
 done
@@ -400,6 +443,7 @@ for probe in "${PROBES[@]}"; do
     r2)       probe_r2       || failed+=(r2) ;;
     r1)       probe_r1       || failed+=(r1) ;;
     position) probe_position || failed+=(position) ;;
+    contam)   probe_contam   || failed+=(contam) ;;
   esac
 done
 

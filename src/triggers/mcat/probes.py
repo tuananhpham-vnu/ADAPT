@@ -409,6 +409,7 @@ def summarize_growth(
     iterations: int = 10_000,
     seed: int = 0,
     selection: str = "random",
+    scope_note: str | None = None,
 ) -> dict[str, Any]:
     """Per-level means, paired drops, and the seed-spread check that gates them.
 
@@ -512,6 +513,8 @@ def summarize_growth(
                 "triggered": "Holds even for benign documents nearest the TRIGGERED "
                              "support queries -- the upper bound for benign growth",
             }.get(selection, "")
+            if scope_note is not None:
+                scope = scope_note
             reason = ("no evidence of decay in this setting: the paired interval for the "
                       f"largest growth level contains zero. {scope}")
         else:

@@ -85,6 +85,41 @@ các mức lồng nhau (top 25% ⊂ top 50% ⊂ top 100%); chỉ lấy tài li�
    - `support` suy giảm đáng kể → bước kế: `scratch` trên memory mới có phục hồi không,
      và generator có rẻ hơn không. Chỉ khi cả hai "có" mới train generator.
 
+> **Kết quả lần chạy 3 (2026-10-04) → [`p0_run3_targeted_growth_results.md`](p0_run3_targeted_growth_results.md).**
+> `support` và `triggered` đều `stable`: drop `hit@5` ở +100% = 0.00056, CI [0, 0.0013],
+> xa dưới ngưỡng 0.05. Margin 20.65 → 20.44, giống hệt thêm ngẫu nhiên. Theo tiêu chí
+> đã chốt: **R2 đúng kể cả ở chặn trên → bỏ hướng generator cho amortization theo
+> memory drift** (với memory lành). Còn mở: memory chứa token trigger / poison khác.
+
+### Lần chạy 4 — memory **mang trigger** (chốt TRƯỚC khi chạy, 2026-10-04)
+
+Hai kịch bản duy nhất còn có thể đưa bản ghi vào vùng trigger (`probe-contamination`,
+`src/triggers/mcat/contamination.py`). Trigger + poison của mình đóng băng ở `s0`; chỉ
+các bản ghi thêm vào thay đổi; chúng tính là **đối thủ**, không phải poison của mình.
+
+| scenario | Bản ghi thêm vào | Mức |
+|---|---|---|
+| `self` | agent tự ghi tương tác đã bị kích hoạt: query cùng split (không thuộc episode) + **trigger của mình** | 1, 2, 5, 10, 25 bản ghi (poison của mình = 5) |
+| `rival` | poison đóng băng của kẻ tấn công **khác** = trigger + poison s0 của episode khác cùng split | 1, 3, 7, 15 kẻ tấn công (×5 poison) |
+
+Thiết lập giống lần 2/3 (AD, 6 token, 2000 docs, 1000 query eval, 16 episode test, top-5).
+3 seed / kịch bản (bốc bản ghi / kẻ tấn công nào); các mức lồng nhau trong một seed.
+
+**Tiêu chí đọc (chốt trước):**
+1. Verdict của code (`summarize_growth`, có cổng seed-spread vì bốc ngẫu nhiên):
+   `decays` cần CI ghép cặp ở mức cao nhất không chứa 0, đơn điệu, và hiệu ứng >
+   seed_spread.
+2. Ngưỡng thực tế như lần 3: suy giảm **đáng kể** = drop `hit@5` ≥ **0.05** ở mức cao nhất.
+3. Đọc kết luận:
+   - `self` suy giảm đáng kể → trigger tự làm hỏng chính nó khi agent ghi lại tương tác
+     bị kích hoạt. Đây là kịch bản **duy nhất** đến giờ cho thấy cần **đổi** trigger
+     (trigger mới không bị bản ghi cũ cạnh tranh). Bước kế (lần 5, chốt sau): đổi trigger
+     có phục hồi không, và generator có rẻ hơn tối ưu lại không.
+   - `rival` suy giảm đáng kể → các trigger tối ưu độc lập hội tụ về cùng vùng.
+   - Cả hai không suy giảm → R2 đúng với mọi loại memory đã thử → khép hướng generator
+     cho memory drift.
+4. Báo kèm mức nhỏ nhất mà drop ≥ 0.05 (nếu có), để biết cần bao nhiêu bản ghi.
+
 Toàn bộ luận điểm của MCAT (memory-conditioned trigger + amortization) chỉ tồn
 tại nếu **cả hai** mệnh đề sau đều SAI:
 

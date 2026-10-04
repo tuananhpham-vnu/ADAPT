@@ -546,6 +546,62 @@ def probe_growth(args: argparse.Namespace) -> Path:
     return directory / GROWTH_SUMMARY
 
 
+def probe_contamination(args: argparse.Namespace) -> Path:
+    """P0-R2: trigger-carrying records (own logged interactions / rival poison) join memory."""
+    from src.triggers.mcat.contamination import (
+        CONTAMINATION_ROWS, CONTAMINATION_SUMMARY, DEFAULT_LEVELS, ContaminationConfig,
+        contamination_probe,
+    )
+
+    output_dir = Path(args.output_dir)
+    episodes, manifest = _load_episodes(output_dir)
+    workspace = _workspace(args)
+    config = _train_config(args)
+    checkpoint = _probe_checkpoint(args, manifest, workspace)
+    levels = tuple(args.contamination_level or DEFAULT_LEVELS[args.scenario])
+    probe = ContaminationConfig(scenario=args.scenario, levels=levels,
+                                seeds=tuple(args.drift_seed), score=args.score)
+    target = [episode for episode in episodes if episode.split == args.split]
+    if not target:
+        raise ValueError(f"no episodes in split {args.split!r}")
+
+    directory = _probe_dir(args, f"contam_{args.scenario}")
+    directory.mkdir(parents=True, exist_ok=True)
+    contract = _probe_contract(args, manifest, workspace, probe="contamination",
+                               config=probe)
+    _lock_probe_config(directory / "probe_config.json", contract)
+
+    ledger = CostLedger(device=str(workspace.retriever.device))
+    with ledger.active():
+        contamination_probe(
+            workspace, target, config, probe, checkpoint=checkpoint,
+            output_dir=directory, contract=contract,
+            ratios=tuple(manifest["ratios"]), split_seed=manifest["seed"],
+            ledger=ledger, resume=args.resume,
+        )
+    scope = {
+        "self": "Holds for the agent logging its own triggered interactions into "
+                "memory (records carrying this attacker's trigger, labelled benign)",
+        "rival": "Holds for the frozen poison of independently optimized attackers "
+                 "on the same domain and split",
+    }[args.scenario]
+    summary = summarize_growth(load_rows(directory / CONTAMINATION_ROWS),
+                               iterations=args.bootstrap_iterations, seed=args.seed,
+                               scope_note=scope)
+    summary.pop("selection", None)
+    summary["scenario"] = args.scenario
+    summary["level_unit"] = ("records added" if args.scenario == "self"
+                             else "rival attackers added (each with its own poison records)")
+    summary["directory"] = str(directory)
+    atomic_json(directory / CONTAMINATION_SUMMARY, summary)
+    atomic_json(directory / "costs.json", ledger.to_json())
+    atomic_json(output_dir / f"stages/probe-contamination-{args.scenario}.json",
+                {"state": "completed", "split": args.split,
+                 "verdict": summary["verdict"], "directory": str(directory)})
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return directory / CONTAMINATION_SUMMARY
+
+
 def probe_position(args: argparse.Namespace) -> Path:
     """P1: score the trigger at the head, the tail, the middle and both ends."""
     output_dir = Path(args.output_dir)
@@ -893,6 +949,12 @@ def add_common(parser: argparse.ArgumentParser) -> None:
                              "same-domain resample; support = nearest the clean Q_sup; "
                              "triggered = nearest Q_sup carrying the trigger (upper "
                              "bound). The last two are deterministic: one --drift-seed")
+    probes.add_argument("--scenario", default="self", choices=("self", "rival"),
+                        help="probe-contamination: self = the agent logs its own "
+                             "triggered interactions; rival = other attackers' poison")
+    probes.add_argument("--contamination-level", type=int, nargs="+", default=None,
+                        help="probe-contamination: counts to add (records for self, "
+                             "attackers for rival); default per scenario")
     probes.add_argument("--position", action="append", choices=POSITIONS, default=None,
                         help="repeatable; defaults to suffix/prefix/both/middle")
     probes.add_argument("--position-mode", choices=("transfer", "reoptimize"),
@@ -921,7 +983,7 @@ def parser() -> argparse.ArgumentParser:
         ("evaluate", evaluate_stage), ("prepare-drift", prepare_drift),
         ("adapt", adapt_stage), ("evaluate-drift", evaluate_drift_stage),
         ("probe-growth", probe_growth), ("probe-position", probe_position),
-        ("probe-universal", probe_universal),
+        ("probe-universal", probe_universal), ("probe-contamination", probe_contamination),
         ("report", report), ("smoke", smoke),
     ):
         stage = subparsers.add_parser(name, help=handler.__doc__)
