@@ -16,6 +16,8 @@ Two controls decide whether conditioning does any work:
 """
 from __future__ import annotations
 
+from collections import OrderedDict
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -23,7 +25,7 @@ from typing import Any
 import torch
 from torch import nn
 
-from src.triggers.artifacts import atomic_json, append_jsonl
+from src.triggers.artifacts import atomic_json, append_jsonl, stable_hash
 from src.triggers.mcat.costs import record, unmetered
 from src.triggers.mcat.encoding import encode_plain, encode_with_trigger_embeddings
 from src.triggers.mcat.episodes import Episode
@@ -33,6 +35,10 @@ from src.triggers.mcat.relaxation import export_hard_trigger, round_trip_report
 from src.triggers.mcat.retrievers import Retriever
 from src.triggers.mcat.runtime import EpisodeContext, Workspace
 from src.triggers.mcat.train import TrainConfig, _logits_for
+
+
+#: The k of every hit@k reported beside hit@K (K = the episode's top-k).
+HIT_CURVE = (1, 2, 3, 5)
 
 
 def retrieval_metrics(
@@ -48,10 +54,15 @@ def retrieval_metrics(
     poison_scores = score_matrix(queries, poison_keys, score)
     top_k = min(top_k, clean_keys.shape[0])
 
-    kth_clean = clean_scores.topk(k=top_k, dim=1).values[:, -1]
+    ranked_clean = clean_scores.topk(k=top_k, dim=1).values
+    kth_clean = ranked_clean[:, -1]
     best_poison = poison_scores.max(dim=1).values
     margin = best_poison - kth_clean
     hit = (margin > 0).float()
+    # hit@k for every k up to K: a poison record is among the first k results.
+    # Kept in its own block so ``hit_at_K`` stays the only ``hit_at_`` key.
+    curve = {str(k): float((best_poison > ranked_clean[:, k - 1]).float().mean())
+             for k in HIT_CURVE if k <= top_k}
 
     # Occupancy: how many of the K slots the poison records actually take.
     combined = torch.cat((clean_scores, poison_scores), dim=1)
@@ -66,6 +77,7 @@ def retrieval_metrics(
     ])
     return {
         f"hit_at_{top_k}": float(hit.mean()),
+        "hit_curve": curve,
         f"poison_occupancy_at_{top_k}": float((occupancy / top_k).mean()),
         "mean_margin": float(margin.mean()),
         "p10_margin": float(margin.quantile(0.10)),
@@ -111,6 +123,61 @@ def _poison_keys(
 
 
 EVAL_BATCH = 64
+#: (retriever, texts, trigger ids, position) -> (triggered, untriggered).
+_QUERY_CACHE: "OrderedDict[tuple, tuple[torch.Tensor, torch.Tensor]]" = OrderedDict()
+QUERY_CACHE_SIZE = 64
+_CACHE_ON = False
+
+
+@contextmanager
+def cached_queries():
+    """Reuse Q_eval encodings inside this block (memory probes only).
+
+    Off by default: the drift evaluation charges encoder passes to each method,
+    and a cache there would make the later methods look cheaper than they are.
+    A memory probe moves only the memory, so its queries are safe to reuse.
+    """
+    global _CACHE_ON
+    previous, _CACHE_ON = _CACHE_ON, True
+    try:
+        yield
+    finally:
+        _CACHE_ON = previous
+        if not previous:
+            _QUERY_CACHE.clear()
+
+
+def _encoded_queries(retriever, texts, trigger_ids, position):
+    """Q_eval with and without the trigger, encoded once per (trigger, texts).
+
+    A memory probe scores one frozen trigger against hundreds of memories; the
+    queries are the same every time, so encoding them again only burns GPU.
+    The key holds the texts themselves, so a different Q_eval can never hit.
+    """
+    key = (id(retriever.model), stable_hash(texts), tuple(trigger_ids.tolist()), position)
+    if _CACHE_ON and key in _QUERY_CACHE:
+        _QUERY_CACHE.move_to_end(key)
+        return _QUERY_CACHE[key]
+    embeds = retriever.model.get_input_embeddings()(trigger_ids)
+    # Chunked: a whole-split evaluation (~1000 queries at 512 tokens) in one
+    # batch needs ~12 GB of attention scores per layer and cannot fit a T4.
+    triggered = _in_chunks(texts, lambda chunk: encode_with_trigger_embeddings(
+        retriever.model, retriever.tokenizer, chunk, embeds,
+        device=retriever.device, max_length=retriever.max_length,
+        position=position,
+    ))
+    # Trigger off: the poison records are already written, but the query
+    # carries no trigger.  Anything retrieved here is a false activation.
+    untriggered = _in_chunks(texts, lambda chunk: encode_plain(
+        retriever.model, retriever.tokenizer, chunk,
+        device=retriever.device, max_length=retriever.max_length,
+    ))
+    if not _CACHE_ON:
+        return triggered, untriggered
+    _QUERY_CACHE[key] = (triggered, untriggered)
+    while len(_QUERY_CACHE) > QUERY_CACHE_SIZE:
+        _QUERY_CACHE.popitem(last=False)
+    return triggered, untriggered
 
 
 def _in_chunks(texts: list[str], encode, size: int = EVAL_BATCH) -> torch.Tensor:
@@ -143,20 +210,7 @@ def evaluate_trigger(
     with torch.no_grad():
         poison = _poison_keys(context, trigger_ids, retriever, frozen=frozen_poison,
                               position=position)
-        embeds = retriever.model.get_input_embeddings()(trigger_ids)
-        # Chunked: a whole-split evaluation (~1000 queries at 512 tokens) in one
-        # batch needs ~12 GB of attention scores per layer and cannot fit a T4.
-        triggered = _in_chunks(texts, lambda chunk: encode_with_trigger_embeddings(
-            retriever.model, retriever.tokenizer, chunk, embeds,
-            device=retriever.device, max_length=retriever.max_length,
-            position=position,
-        ))
-        # Trigger off: the poison records are already written, but the query
-        # carries no trigger.  Anything retrieved here is a false activation.
-        untriggered = _in_chunks(texts, lambda chunk: encode_plain(
-            retriever.model, retriever.tokenizer, chunk,
-            device=retriever.device, max_length=retriever.max_length,
-        ))
+        triggered, untriggered = _encoded_queries(retriever, texts, trigger_ids, position)
         on = retrieval_metrics(triggered, context.clean_keys, poison,
                                top_k=top_k, score=score)
         off = retrieval_metrics(untriggered, context.clean_keys, poison,
@@ -374,7 +428,9 @@ def evaluate(
         append_jsonl(output_dir / "evaluation.jsonl", row)
         rows.append(row)
 
-    keys = [key for key in rows[0]["trigger_on"] if key != "queries"] if rows else []
+    # Scalars only: ``hit_curve`` is a block of its own, averaged per k below.
+    keys = ([key for key, value in rows[0]["trigger_on"].items()
+             if key != "queries" and not isinstance(value, dict)] if rows else [])
     summary: dict[str, Any] = {
         "mode": config.mode, "variant": config.variant, "score": score,
         "trigger_position": config.trigger_position,
@@ -382,6 +438,8 @@ def evaluate(
         "episodes": len(rows),
         "trigger_on": {key: _mean(row["trigger_on"][key] for row in rows) for key in keys},
         "trigger_off": {key: _mean(row["trigger_off"][key] for row in rows) for key in keys},
+        "hit_curve": {k: _mean(row["trigger_on"]["hit_curve"][k] for row in rows)
+                      for k in (rows[0]["trigger_on"].get("hit_curve") or {} if rows else {})},
         "false_activation": _mean(row["false_activation"] for row in rows),
         "round_trip_valid_rate": _mean(float(row["round_trip_valid"]) for row in rows),
     }

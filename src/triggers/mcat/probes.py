@@ -43,6 +43,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 import math
+import random
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -53,7 +54,7 @@ from src.triggers.artifacts import append_jsonl, read_json, stable_hash
 from src.triggers.mcat.costs import CostLedger
 from src.triggers.mcat.drift import Snapshot, build_targeted_growth, build_trajectory
 from src.triggers.mcat.drift_eval import load_rows, prepare_bases
-from src.triggers.mcat.encoding import POSITIONS, POSITION_COPIES
+from src.triggers.mcat.encoding import POSITIONS, POSITION_COPIES, encode_plain
 from src.triggers.mcat.episodes import Episode, family_key
 from src.triggers.mcat.evaluate import evaluate_trigger, generate_trigger
 from src.triggers.mcat.poison import FrozenPoison
@@ -71,7 +72,11 @@ R1_SUMMARY = "probe_universal.json"
 PROBE_GROWTH = (0.25, 0.50, 1.00)
 #: Five resamples of the benign documents added at each level.
 PROBE_SEEDS = (0, 1, 2, 3, 4)
-GROWTH_SELECTIONS = ("random", "support", "triggered")
+GROWTH_SELECTIONS = ("random", "support", "triggered", "ood")
+#: Selections that rank the pool instead of drawing from it: one seed only.
+DETERMINISTIC_SELECTIONS = ("support", "triggered")
+#: ``ood`` draws benign documents from this domain (StrategyQA paragraphs).
+OOD_DOMAIN = "qa"
 
 
 # --------------------------------------------------------------------------- #
@@ -88,6 +93,36 @@ def hit_of(metrics: dict[str, Any]) -> float:
         if key.startswith("hit_at_"):
             return float(value)
     raise KeyError(f"no hit@K metric in {sorted(metrics)}")
+
+
+def curve_of(row: dict[str, Any]) -> dict[str, float]:
+    """hit@k for k = 1, 2, 3, 5 out of a row; empty for rows written before it existed."""
+    return (row.get("trigger_on") or {}).get("hit_curve") or {}
+
+
+def hit_curve_summary(
+    per_episode: dict[str, list[dict[str, Any]]],
+    base: dict[str, dict[str, Any]],
+    *,
+    iterations: int,
+    seed: int,
+) -> dict[str, Any]:
+    """Per k: the mean hit@k and its paired drop from the base, by episode.
+
+    Seeds are averaged inside an episode first, as for hit@K.  Positive drop
+    means the poison lost ground at that depth of the ranking.
+    """
+    names = sorted(per_episode)
+    ks = sorted({k for rows in per_episode.values() for row in rows for k in curve_of(row)},
+                key=int)
+    result = {}
+    for k in ks:
+        moved = [float(_mean(curve_of(row)[k] for row in per_episode[name])) for name in names]
+        anchor = [float(curve_of(base[name])[k]) for name in names]
+        result[k] = {"hit": _mean(moved), "base": _mean(anchor),
+                     "drop_vs_base": paired_bootstrap(anchor, moved, names,
+                                                      iterations=iterations, seed=seed)}
+    return result
 
 
 def _mean(values: Iterable[float]) -> float | None:
@@ -140,13 +175,14 @@ class GrowthProbeConfig:
     #: Which benign documents arrive: ``random`` (same-domain resample),
     #: ``support`` (nearest the clean Q_sup) or ``triggered`` (nearest Q_sup
     #: carrying the trigger -- the upper bound).  See ``build_targeted_growth``.
+    #: ``ood`` adds random benign documents of another domain (``OOD_DOMAIN``).
     selection: str = "random"
 
     def __post_init__(self) -> None:
         if self.selection not in GROWTH_SELECTIONS:
             raise ValueError(
                 f"selection must be one of {GROWTH_SELECTIONS}, got {self.selection!r}")
-        if self.selection != "random" and len(self.seeds) != 1:
+        if self.selection in DETERMINISTIC_SELECTIONS and len(self.seeds) != 1:
             raise ValueError(
                 f"selection {self.selection!r} is deterministic: pass exactly one drift "
                 f"seed, got {self.seeds}. Extra seeds would be copies, not resamples")
@@ -272,10 +308,37 @@ def growth_probe(
                                    retriever=workspace.retriever)
 
     rows: list[dict[str, Any]] = []
+    ood_vectors: dict[int, torch.Tensor] = {}
 
     def emit(row: dict[str, Any]) -> None:
         append_jsonl(rows_path, row)
         rows.append(row)
+
+    def ood_prefix(drift_seed: int, count: int) -> torch.Tensor:
+        """The first ``count`` documents of one seeded shuffle of the OOD corpus.
+
+        One shuffle per seed, shared by every episode: the OOD corpus has no
+        split of this domain to respect, and a shared draw keeps the encoding
+        cost at one pass per seed.  Prefixes nest, so +50% extends +25%.
+        """
+        held = ood_vectors.get(drift_seed)
+        if held is None or held.shape[0] < count:
+            documents = workspace.documents(OOD_DOMAIN)
+            if count > len(documents):
+                raise ValueError(f"ood needs {count} documents, {OOD_DOMAIN} has "
+                                 f"{len(documents)}")
+            order = list(range(len(documents)))
+            random.Random(stable_hash(["ood", OOD_DOMAIN, drift_seed])[:16]).shuffle(order)
+            texts = [documents[index]["text"] for index in order[:count]]
+            retriever = workspace.retriever
+            with ledger.phase(f"ood-d{drift_seed}/encode"), torch.no_grad():
+                held = torch.cat([
+                    encode_plain(retriever.model, retriever.tokenizer,
+                                 texts[start:start + 64], device=retriever.device,
+                                 max_length=retriever.max_length)
+                    for start in range(0, len(texts), 64)])
+            ood_vectors[drift_seed] = held
+        return held[:count]
 
     for episode in episodes:
         _, trigger = bases.get(episode.episode_id, (None, None))
@@ -318,6 +381,31 @@ def growth_probe(
                   "applicable": False, "kind": "excluded", "on_hit": base_hit,
                   "reason": f"base hit {base_hit:.3f} < min_base_hit "
                             f"{probe.min_base_hit:.3f}"})
+            continue
+
+        if probe.selection == "ood":
+            if episode.domain == OOD_DOMAIN and not workspace.fixture:
+                raise ValueError(f"{episode.episode_id}: ood growth draws from "
+                                 f"{OOD_DOMAIN}, the episode's own domain")
+            base_memory = base_context.memory_vectors
+            for drift_seed in probe.seeds:
+                for growth in probe.growth:
+                    count = round(growth * base_memory.shape[0])
+                    extra = ood_prefix(drift_seed, count).to(base_memory.device)
+                    context = replace(base_context,
+                                      memory_vectors=torch.cat([base_memory, extra]))
+                    row = _score_snapshot(
+                        workspace, context, trigger, keys, probe, config,
+                        snapshot=None, episode=episode, fingerprint=fingerprint,
+                        ledger=ledger, done=done, rows_path=rows_path,
+                        drift_seed=drift_seed,
+                        pool_size=len(workspace.documents(OOD_DOMAIN)),
+                        override={"snapshot_id": f"{episode.episode_id}-ood-{growth:g}"
+                                                 f"-d{drift_seed}",
+                                  "kind": "ood", "growth": growth},
+                    )
+                    if row is not None:
+                        rows.append(row)
             continue
 
         pool = growth_pool(workspace, episode, ratios=ratios, seed=split_seed)
@@ -370,9 +458,16 @@ def _score_snapshot(
     rows_path: Path,
     drift_seed: int | None = None,
     pool_size: int | None = None,
+    override: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """One (episode, snapshot) measurement with the frozen trigger and poison."""
+    """One (episode, snapshot) measurement with the frozen trigger and poison.
+
+    ``override`` names a memory that is not a stored ``Snapshot`` (the ``ood``
+    growth, built by appending vectors): its ``snapshot_id``, ``kind``, ``growth``.
+    """
     snapshot_id = snapshot.snapshot_id if snapshot is not None else episode.snapshot_id
+    if override is not None:
+        snapshot_id = override["snapshot_id"]
     key = probe_row_key(episode.episode_id, snapshot_id, "growth", fingerprint)
     if key in done:
         return None
@@ -384,8 +479,10 @@ def _score_snapshot(
         "probe": "growth", "key": key, "applicable": True,
         "episode_id": episode.episode_id, "domain": episode.domain,
         "split": episode.split, "snapshot_id": snapshot_id,
-        "kind": "base" if snapshot is None else snapshot.kind,
-        "growth": 0.0 if snapshot is None else snapshot.growth,
+        "kind": (override["kind"] if override is not None
+                 else "base" if snapshot is None else snapshot.kind),
+        "growth": (override["growth"] if override is not None
+                   else 0.0 if snapshot is None else snapshot.growth),
         "drift_seed": drift_seed,
         "documents": context.memory_vectors.shape[0],
         # Constant by construction: the records were frozen at s0.  Carried on
@@ -450,9 +547,11 @@ def summarize_growth(
         # five looks at the same trigger, not five episodes.
         per_episode: dict[str, list[float]] = {}
         per_episode_off: dict[str, list[float]] = {}
+        per_episode_rows: dict[str, list[dict[str, Any]]] = {}
         for row in group:
             per_episode.setdefault(row["episode_id"], []).append(row["on_hit"])
             per_episode_off.setdefault(row["episode_id"], []).append(row["off_hit"])
+            per_episode_rows.setdefault(row["episode_id"], []).append(row)
         shared = [eid for eid in per_episode if eid in base]
         drifted = [float(_mean(per_episode[eid])) for eid in shared]
         anchor = [float(base[eid]["on_hit"]) for eid in shared]
@@ -471,6 +570,9 @@ def summarize_growth(
             # base - drifted: positive means the frozen trigger lost ground.
             "drop_vs_base": drop,
             "seed_spread": _mean(spreads),
+            "hit_curve": hit_curve_summary(
+                {eid: per_episode_rows[eid] for eid in shared}, base,
+                iterations=iterations, seed=seed),
         }
 
     ordered = [levels[key] for key in sorted(levels, key=lambda key: levels[key]["growth"])]
@@ -488,7 +590,7 @@ def summarize_growth(
         significant = bool(drop.get("significant")) and (drop.get("ci_low") or 0.0) > 0
         effect = drop.get("mean_difference")
         spread = last["seed_spread"]
-        deterministic = selection != "random"
+        deterministic = selection in DETERMINISTIC_SELECTIONS
         beats_noise = deterministic or (
             effect is not None and spread is not None and abs(effect) > spread
         )
@@ -499,7 +601,8 @@ def summarize_growth(
                       + ("the selection is deterministic (no seed spread to beat)"
                          if deterministic else
                          "the effect exceeds the spread across drift seeds")
-                      + f" [selection={selection}]")
+                      # The contamination probe names its own scenario instead.
+                      + ("" if scope_note is not None else f" [selection={selection}]"))
         elif significant and not beats_noise:
             verdict = "inconclusive"
             reason = (f"the drop ({effect}) does not exceed the spread across drift "
@@ -512,6 +615,8 @@ def summarize_growth(
                 "support": "Holds for benign documents nearest the clean support queries",
                 "triggered": "Holds even for benign documents nearest the TRIGGERED "
                              "support queries -- the upper bound for benign growth",
+                "ood": f"Holds for random benign documents of another domain "
+                       f"({OOD_DOMAIN}) added to this memory",
             }.get(selection, "")
             if scope_note is not None:
                 scope = scope_note
@@ -526,6 +631,8 @@ def summarize_growth(
         "episodes": len(base), "excluded_episodes": len(excluded),
         "excluded": [row.get("reason") for row in excluded],
         "base": {"on_hit": base_on,
+                 "hit_curve": {k: _mean(curve_of(row).get(k) for row in base.values())
+                               for k in curve_of(next(iter(base.values())))},
                  "off_hit": _mean(row["off_hit"] for row in base.values()),
                  "documents": _mean(row["documents"] for row in base.values()),
                  "poison_fraction": _mean(row["poison_fraction"] for row in base.values())},

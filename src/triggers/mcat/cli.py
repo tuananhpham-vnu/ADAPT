@@ -33,7 +33,7 @@ from src.triggers.mcat.domains import DOMAIN_NAMES
 from src.triggers.mcat.episodes import (
     Episode, EpisodeSizes, build_manifest, family_key,
 )
-from src.triggers.mcat.evaluate import evaluate
+from src.triggers.mcat.evaluate import cached_queries, evaluate
 from src.triggers.mcat.generator import parameter_count
 from src.triggers.mcat.encoding import POSITIONS
 from src.triggers.mcat.poison import FROZEN_POISON_FILE, FrozenPoison
@@ -80,6 +80,7 @@ def _workspace(args: argparse.Namespace) -> Workspace:
         retriever=_retriever(args), cache_dir=cache_dir,
         fixture=args.fixture, batch_size=args.index_batch_size,
         memory_summary_keys=args.memory_summary_keys, corpus_limit=args.corpus_limit,
+        base_search_dir=getattr(args, "base_search_dir", None),
     )
 
 
@@ -524,7 +525,7 @@ def probe_growth(args: argparse.Namespace) -> Path:
     _lock_probe_config(directory / "probe_config.json", contract)
 
     ledger = CostLedger(device=str(workspace.retriever.device))
-    with ledger.active():
+    with ledger.active(), cached_queries():
         growth_probe(
             workspace, target, config, probe, checkpoint=checkpoint,
             output_dir=directory, contract=contract,
@@ -572,7 +573,7 @@ def probe_contamination(args: argparse.Namespace) -> Path:
     _lock_probe_config(directory / "probe_config.json", contract)
 
     ledger = CostLedger(device=str(workspace.retriever.device))
-    with ledger.active():
+    with ledger.active(), cached_queries():
         contamination_probe(
             workspace, target, config, probe, checkpoint=checkpoint,
             output_dir=directory, contract=contract,
@@ -600,6 +601,54 @@ def probe_contamination(args: argparse.Namespace) -> Path:
                  "verdict": summary["verdict"], "directory": str(directory)})
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return directory / CONTAMINATION_SUMMARY
+
+
+def probe_writeback(args: argparse.Namespace) -> Path:
+    """P0 run 5: the agent logs its triggered interactions under a write policy."""
+    from src.triggers.mcat.writeback import (
+        DEFAULT_LEVELS, POLICIES, WRITEBACK_ROWS, WRITEBACK_SUMMARY, WritebackConfig,
+        summarize_writeback, writeback_probe,
+    )
+
+    output_dir = Path(args.output_dir)
+    episodes, manifest = _load_episodes(output_dir)
+    workspace = _workspace(args)
+    config = _train_config(args)
+    checkpoint = _probe_checkpoint(args, manifest, workspace)
+    probe = WritebackConfig(
+        policies=tuple(args.memory_write or POLICIES),
+        levels=tuple(args.writeback_level or DEFAULT_LEVELS),
+        seeds=tuple(args.drift_seed), seed_poison=args.seed_poison, score=args.score)
+    target = [episode for episode in episodes if episode.split == args.split]
+    if not target:
+        raise ValueError(f"no episodes in split {args.split!r}")
+
+    # Each seed-poison budget is its own experiment: its own directory.
+    name = "writeback" if args.seed_poison is None else f"writeback_p{args.seed_poison}"
+    directory = _probe_dir(args, name)
+    directory.mkdir(parents=True, exist_ok=True)
+    contract = _probe_contract(args, manifest, workspace, probe="writeback", config=probe)
+    _lock_probe_config(directory / "probe_config.json", contract)
+
+    ledger = CostLedger(device=str(workspace.retriever.device))
+    with ledger.active():
+        writeback_probe(
+            workspace, target, config, probe, checkpoint=checkpoint,
+            output_dir=directory, contract=contract,
+            ratios=tuple(manifest["ratios"]), split_seed=manifest["seed"],
+            ledger=ledger, resume=args.resume,
+        )
+    summary = summarize_writeback(load_rows(directory / WRITEBACK_ROWS),
+                                  iterations=args.bootstrap_iterations, seed=args.seed)
+    summary["directory"] = str(directory)
+    atomic_json(directory / WRITEBACK_SUMMARY, summary)
+    atomic_json(directory / "costs.json", ledger.to_json())
+    atomic_json(output_dir / f"stages/probe-{name}.json",
+                {"state": "completed", "split": args.split, "directory": str(directory),
+                 "verdicts": {policy: block["verdict"]["direction"]
+                              for policy, block in summary.get("policies", {}).items()}})
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return directory / WRITEBACK_SUMMARY
 
 
 def probe_position(args: argparse.Namespace) -> Path:
@@ -875,6 +924,9 @@ def add_common(parser: argparse.ArgumentParser) -> None:
     retriever.add_argument("--max-length", type=int, default=512)
     retriever.add_argument("--index-batch-size", type=int, default=32)
     retriever.add_argument("--hf-token", default=None)
+    retriever.add_argument("--base-search-dir", type=Path, default=None,
+                           help="probes: share the per-episode s0 searches here, so "
+                                "every probe on one run pays for them once")
     retriever.add_argument("--cache-dir", type=Path, default=None,
                            help="shared clean-vector cache; defaults to "
                                 "<output-dir>/cache. Point several arms at one "
@@ -944,17 +996,27 @@ def add_common(parser: argparse.ArgumentParser) -> None:
                              "the undrifted snapshot. Measured before any growth, so "
                              "it cannot select for decay")
     probes.add_argument("--growth-selection", default="random",
-                        choices=("random", "support", "triggered"),
+                        choices=("random", "support", "triggered", "ood"),
                         help="probe-growth: which benign documents arrive. random = "
                              "same-domain resample; support = nearest the clean Q_sup; "
                              "triggered = nearest Q_sup carrying the trigger (upper "
-                             "bound). The last two are deterministic: one --drift-seed")
+                             "bound); ood = random benign documents of the qa domain. "
+                             "support and triggered are deterministic: one --drift-seed")
     probes.add_argument("--scenario", default="self", choices=("self", "rival"),
                         help="probe-contamination: self = the agent logs its own "
                              "triggered interactions; rival = other attackers' poison")
     probes.add_argument("--contamination-level", type=int, nargs="+", default=None,
                         help="probe-contamination: counts to add (records for self, "
                              "attackers for rival); default per scenario")
+    probes.add_argument("--memory-write", action="append", default=None,
+                        choices=("none", "log_outcome", "verified", "corrected"),
+                        help="probe-writeback: how the agent logs a triggered interaction; repeatable, defaults to all four")
+    probes.add_argument("--writeback-level", type=int, nargs="+", default=None,
+                        help="probe-writeback: triggered interactions streamed before "
+                             "each Q_eval score (default 5 10 25 50)")
+    probes.add_argument("--seed-poison", type=int, default=None,
+                        help="probe-writeback: keep only the first N frozen poison "
+                             "records, to lower the base hit off the ceiling")
     probes.add_argument("--position", action="append", choices=POSITIONS, default=None,
                         help="repeatable; defaults to suffix/prefix/both/middle")
     probes.add_argument("--position-mode", choices=("transfer", "reoptimize"),
@@ -984,6 +1046,7 @@ def parser() -> argparse.ArgumentParser:
         ("adapt", adapt_stage), ("evaluate-drift", evaluate_drift_stage),
         ("probe-growth", probe_growth), ("probe-position", probe_position),
         ("probe-universal", probe_universal), ("probe-contamination", probe_contamination),
+        ("probe-writeback", probe_writeback),
         ("report", report), ("smoke", smoke),
     ):
         stage = subparsers.add_parser(name, help=handler.__doc__)

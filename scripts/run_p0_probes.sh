@@ -7,6 +7,9 @@
 #   r1        one universal trigger (B3) against the per-episode arm (B2),
 #             paired by episode at an equal step budget.  (P0-R1)
 #   position  suffix / prefix / both / middle at an equal token budget.  (P1)
+#   contam    trigger-carrying records join the memory.  (P0 run 4)
+#   writeback the agent logs its triggered interactions under each write
+#             policy, closed loop.  (P0 run 5)
 #
 # Usage (from repo root):
 #   bash scripts/run_p0_probes.sh preflight     # checks + CPU smoke, no GPU
@@ -87,7 +90,8 @@ DRIFT_SEEDS="${DRIFT_SEEDS:-0 1 2 3 4}"
 MIN_BASE_HIT="${MIN_BASE_HIT:-0.0}"
 # Which benign documents the growth adds: random | support | triggered.
 # support/triggered rank the spare pool against Q_sup (clean / carrying the
-# trigger) and are deterministic -- run them with DRIFT_SEEDS=0.
+# trigger) and are deterministic -- run them with DRIFT_SEEDS=0.  ood adds random
+# benign documents of the qa domain (StrategyQA) and is resampled like random.
 GROWTH_SELECTION="${GROWTH_SELECTION:-random}"
 if [ "$GROWTH_SELECTION" = "random" ]; then
   GROWTH_DIR="growth"
@@ -98,11 +102,20 @@ fi
 # attackers' poison.  CONTAM_LEVELS empty -> the per-scenario default counts.
 CONTAM_SCENARIO="${CONTAM_SCENARIO:-self}"
 CONTAM_LEVELS="${CONTAM_LEVELS:-}"
+# writeback: SEED_POISON empty -> all frozen poison records; WRITEBACK_LEVELS
+# empty -> 5 10 25 50 interactions.
+SEED_POISON="${SEED_POISON:-}"
+WRITEBACK_LEVELS="${WRITEBACK_LEVELS:-}"
+if [ -z "$SEED_POISON" ]; then WRITEBACK_DIR="writeback"; else WRITEBACK_DIR="writeback_p$SEED_POISON"; fi
 POSITIONS="${POSITIONS:-suffix prefix both middle}"
 POSITION_MODE="${POSITION_MODE:-transfer}"
 POSITION_BASELINE="${POSITION_BASELINE:-suffix}"
 ATTENTION="${ATTENTION:-1}"
 BOOTSTRAP="${BOOTSTRAP:-10000}"
+
+# BASE_SEARCH_DIR set -> every probe of this RUN_ROOT reuses one s0 search per
+# episode instead of repeating it (the search is the same whichever probe asks).
+BASE_SEARCH_DIR="${BASE_SEARCH_DIR:-}"
 
 RESUME="${RESUME:-0}"
 SKIP_PREFLIGHT="${SKIP_PREFLIGHT:-0}"
@@ -127,6 +140,7 @@ EPISODE_FLAGS="--seed $SEED $DOMAIN_FLAGS --per-split $PER_SPLIT \
 RETRIEVER_FLAGS="--retriever-model $MODEL --retriever-revision $REV \
 --retriever-device $DEVICE --max-length $MAX_LENGTH \
 --index-batch-size $INDEX_BATCH --cache-dir $CACHE_DIR"
+[ -n "$BASE_SEARCH_DIR" ] && RETRIEVER_FLAGS="$RETRIEVER_FLAGS --base-search-dir $BASE_SEARCH_DIR"
 if [ "$FIXTURE" = "1" ]; then
   RETRIEVER_FLAGS="$RETRIEVER_FLAGS --fixture"
   echo "** FIXTURE=1: CPU fixture encoder. Plumbing check only, NOT results. **"
@@ -176,7 +190,8 @@ PY
   echo "--- unit tests (probes + pipeline) ---"
   local tests="$RUN_ROOT/_preflight-tests.log"
   if ! $PYTHON -m unittest tests.test_mcat_probes tests.test_mcat_drift \
-       tests.test_mcat_pipeline > "$tests" 2>&1; then
+       tests.test_mcat_pipeline tests.test_mcat_writeback tests.test_mcat_hit_curve \
+       > "$tests" 2>&1; then
     tail -25 "$tests"
     echo "!! unit tests failed; see $tests" >&2
     return 1
@@ -280,6 +295,29 @@ probe_contam () {
     echo "!! contam failed; last lines of $log:"; tail -20 "$log"; return 1
   fi
   echo "   done -> $out/probes/contam_$CONTAM_SCENARIO-suffix-$PROBE_SPLIT/probe_contamination.json"
+}
+
+probe_writeback () {
+  echo ""
+  echo ">> P0 run 5: closed-loop write-back under each write policy (seed poison: ${SEED_POISON:-all})"
+  local out log
+  out=$(arm_dir b2)
+  log="$RUN_ROOT/$WRITEBACK_DIR.console"
+  local common="--output-dir $out $EPISODE_FLAGS $RETRIEVER_FLAGS"
+  local extra=""
+  [ -n "$SEED_POISON" ] && extra="--seed-poison $SEED_POISON"
+  [ -n "$WRITEBACK_LEVELS" ] && extra="$extra --writeback-level $WRITEBACK_LEVELS"
+  (
+    set -e
+    prepare_arm b2 direct-logit
+    $PYTHON -m src.triggers.mcat probe-writeback $common $TRAIN_FLAGS \
+      --mode direct-logit --split "$PROBE_SPLIT" $extra --drift-seed $SEED_FLAGS \
+      --bootstrap-iterations "$BOOTSTRAP" $RESUME_FLAG
+  ) > "$log" 2>&1
+  if [ $? -ne 0 ]; then
+    echo "!! writeback failed; last lines of $log:"; tail -20 "$log"; return 1
+  fi
+  echo "   done -> $out/probes/$WRITEBACK_DIR-suffix-$PROBE_SPLIT/probe_writeback.json"
 }
 
 probe_r1 () {
@@ -424,8 +462,8 @@ fi
 
 for probe in "${PROBES[@]}"; do
   case "$probe" in
-    r2|r1|position|contam) ;;
-    *) echo "!! unknown probe: $probe (choose r2, r1, position, contam, all, preflight)" >&2
+    r2|r1|position|contam|writeback) ;;
+    *) echo "!! unknown probe: $probe (choose r2, r1, position, contam, writeback, all, preflight)" >&2
        exit 1 ;;
   esac
 done
@@ -444,6 +482,7 @@ for probe in "${PROBES[@]}"; do
     r1)       probe_r1       || failed+=(r1) ;;
     position) probe_position || failed+=(position) ;;
     contam)   probe_contam   || failed+=(contam) ;;
+    writeback) probe_writeback || failed+=(writeback) ;;
   esac
 done
 

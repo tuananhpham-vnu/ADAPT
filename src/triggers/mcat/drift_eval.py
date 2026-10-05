@@ -94,13 +94,24 @@ def base_for_episode(
     """
     context = workspace.context_for(episode)
     if config.mode in PER_EPISODE_MODES:
-        directory = Path(output_dir) / context.snapshot_id / "base-search"
+        search_contract = dict(contract, adapt_method="base-search",
+                               adapt_snapshot=context.snapshot_id)
+        if workspace.base_search_dir is not None:
+            # Shared across probes: the s0 search depends on the run, the
+            # episode and the training config, never on which probe asked for
+            # it.  The probe's own fields are dropped from the contract so every
+            # probe resolves to one checkpoint, and a finished search resumes
+            # straight to its result instead of being paid for again.
+            directory = Path(workspace.base_search_dir) / context.snapshot_id
+            search_contract = {key: value for key, value in search_contract.items()
+                               if key not in ("probe", "probe_config")}
+            resume = True
+        else:
+            directory = Path(output_dir) / context.snapshot_id / "base-search"
         with ledger.phase(f"{context.snapshot_id}/base-search"):
             _, modules = train(
                 workspace, [episode], config, output_dir=directory,
-                contract=dict(contract, adapt_method="base-search",
-                              adapt_snapshot=context.snapshot_id),
-                resume=resume, contexts=[context],
+                contract=search_contract, resume=resume, contexts=[context],
             )
             trigger = generate_trigger(modules[0], config, context, workspace.retriever)
         return modules[0], trigger, context

@@ -59,6 +59,9 @@ class Workspace:
     memory_summary_keys: int = 128
     corpus_limit: int | None = None
     reuse_report: dict[str, Any] = field(default_factory=dict)
+    #: Where per-episode ``s0`` searches live when several probes share them.
+    #: None keeps each search inside its probe directory (the old layout).
+    base_search_dir: Path | None = None
     _domains: dict[str, Domain] = field(default_factory=dict)
     _documents: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     _queries: dict[str, list[dict[str, Any]]] = field(default_factory=dict)

@@ -120,6 +120,120 @@ Thiết lập giống lần 2/3 (AD, 6 token, 2000 docs, 1000 query eval, 16 epi
      cho memory drift.
 4. Báo kèm mức nhỏ nhất mà drop ≥ 0.05 (nếu có), để biết cần bao nhiêu bản ghi.
 
+> **Kết quả lần chạy 4 (2026-10-05) → [`p0_run4_contamination_results.md`](p0_run4_contamination_results.md).**
+> **`self`: `decays`, đáng kể** — 10 bản ghi bị log: drop 0.109 [0.063, 0.162]; 25 bản ghi:
+> hit 0.984 → 0.598, drop 0.386 [0.306, 0.466]. Kịch bản **đầu tiên** làm trigger cũ hỏng.
+> `rival`: `decays` nhưng nhỏ (0.004 ở 15 kẻ tấn công, < 0.05) — margin giảm một nửa nhưng
+> poison vẫn giữ top-5. Bước kế (lần 5, cần chốt trước): đổi trigger có phục hồi không.
+
+### Lần chạy 5 — agent tự ghi lại, **theo chính sách ghi** (chốt TRƯỚC khi chạy, 2026-10-05)
+
+Bối cảnh và lý do đổi hướng: §P4 bên dưới. Tóm tắt: lần 4 giả định mọi tương tác có
+trigger đều được ghi với **nhãn lành**. Thực tế nhãn do **chính sách ghi** của agent quyết
+định, và còn phụ thuộc vào việc tấn công có nổ ở lần đó không. Lần 5 kiểm tra xem chính
+sách ghi có đổi được **chiều** của hiệu ứng không: pha loãng hay củng cố backdoor. Câu hỏi
+"đổi trigger có phục hồi không" lùi xuống sau, vì nó chỉ có nghĩa khi đã biết chính sách
+nào gây pha loãng.
+
+Code: `probe-writeback`, `src/triggers/mcat/writeback.py`. Chạy vòng kín: các tương tác mang
+trigger đến **theo thứ tự**. Mỗi tương tác truy hồi trên memory **hiện tại**, nổ nếu có bản ghi
+độc trong top-5, rồi chính sách ghi quyết định ghi gì:
+
+| chính sách | nổ | không nổ | mô phỏng |
+|---|---|---|---|
+| `none` | — | — | memory tĩnh (AgentPoison) — đối chứng |
+| `log_outcome` | ghi **bản ghi độc** | ghi bản ghi lành | agent lưu mọi kết quả của chính nó làm kinh nghiệm |
+| `verified` | **bỏ** | ghi bản ghi lành | bộ lọc thành công (EHRAgent/ExpeL), verifier hoàn hảo |
+| `corrected` | ghi bản ghi lành | ghi bản ghi lành | nhãn luôn đúng (người sửa) = lần 4 nhưng vòng kín |
+
+Thiết lập giống lần 4 (AD, 6 token, 2000 docs, 1000 query eval, 16 episode test, top-5,
+poison đóng băng ở `s0`). Stream lấy từ `self_pool` (cùng split, ngoài episode) + trigger
+của mình. Đo `Q_eval` sau **5, 10, 25, 50** tương tác. 3 seed (seed quyết định thứ tự stream),
+và cả 4 chính sách dùng **chung** một stream trong mỗi seed. Hai arm:
+- **chính:** `--seed-poison` mặc định (5 poison), base ≈ 0.98, sát trần.
+- **ngoài trần:** `--seed-poison 1`, để có chỗ cho hiệu ứng củng cố hiện ra. Nếu base của
+  arm này vẫn ≥ 0.95 thì báo thêm occupancy và margin, nhưng **không** đổi verdict theo chúng.
+
+Metric thêm: `cleanup_hit` = `hit@5` sau khi **xoá poison gốc**, tức chỉ còn các bản ghi
+độc do agent tự ghi. Nó đo việc dọn sạch poison gốc có gỡ được backdoor hay không.
+
+**Tiêu chí đọc (chốt trước):**
+1. Chiều hiệu ứng theo từng chính sách là verdict của code (`_verdict`), lấy ở mức 50 so với
+   base, CI bootstrap ghép cặp theo episode (seed lấy trung bình trong episode):
+   `dilutes` = CI < 0 và |thay đổi| ≥ 0.05; `reinforces` = CI > 0 và thay đổi ≥ 0.05;
+   `significant-but-small` = CI không chứa 0 nhưng < 0.05; còn lại là `stable`.
+2. Dự đoán ghi trước (để biết sau này có sai không):
+   - H1: `corrected` → `dilutes`. Đây là lặp lại lần 4 nhưng chạy vòng kín.
+   - H2: `verified` → `stable`. Phần lớn tương tác nổ nên bị bỏ, memory gần như đứng yên.
+   - H3: `log_outcome` → không `dilutes`. Ở arm ngoài trần thì `reinforces`, và
+     `persists_after_cleanup` = đúng (`cleanup_hit` ≥ 0.5).
+3. **Claim chính** ("chính sách ghi quyết định chiều hiệu ứng") chỉ đứng nếu trong **cùng
+   một arm** có ít nhất một chính sách `dilutes` và một chính sách **không** `dilutes`, với
+   CI không chồng nhau. Nếu cả 3 chính sách ghi đều cho cùng một chiều thì claim này chết,
+   và P4-A quay về chỉ là phép đo.
+4. Báo `off_hit` cạnh mọi con số. Nếu `log_outcome` đẩy `off_hit` > 0.05, đó là một phát hiện
+   riêng: bản ghi độc tự ghi làm backdoor nổ cả khi không có trigger.
+5. Giới hạn đã biết trước: stream chỉ gồm tương tác **có trigger**; query sạch được coi là
+   memory lành (lần 2/3: không chạm vùng trigger). `verified` giả định verifier hoàn hảo.
+   Key của bản ghi giả định agent ghi nguyên văn input — cần đối chiếu với EHRAgent thật (P4, bước 2).
+
+Lệnh (mỗi arm là một thư mục riêng `probes/writeback[_p1]-suffix-test`):
+```
+python -m src.triggers.mcat probe-writeback <cờ của lần 4> --split test --drift-seed 0 1 2
+python -m src.triggers.mcat probe-writeback <cờ của lần 4> --split test --drift-seed 0 1 2 --seed-poison 1
+```
+
+> **Trạng thái lần chạy 5:** kernel `dainn98s/adapt-mcat-p0-writeback` v1 **lỗi ngay ở preflight**
+> (0 s, chưa dùng GPU): `run_p0_probes.sh` trong overlay mang CRLF (repo đặt `core.autocrlf=true`),
+> và bash trên Kaggle từ chối. Không có số liệu. Lần 5 được **gộp vào lần 6** (lane adversarial,
+> bước `writeback_p5`/`writeback_p1`) với đúng thiết lập và tiêu chí đã chốt ở trên.
+
+### Lần chạy 6 — chạy lại 2–5 kèm hit@1/2/3/5, thêm arm **out-of-domain** (chốt TRƯỚC khi chạy, 2026-10-05)
+
+Yêu cầu của người dùng: (a) báo thêm hit@1/2/3/5 cho mọi trường hợp, (b) thêm arm benign
+**out-of-domain** để so với in-domain. Tập trung vào AgentDriver.
+
+Kernel `dainn98s/adapt-mcat-p0-rerun`, T4×2. Thiết lập giống hệt lần 2–5 (AD, 6 token, 2000
+docs, 1000 query eval, 16 episode test, top-5, 400 step).
+
+| lane | bước | memory thêm vào | seed |
+|---|---|---|---|
+| GPU0 benign | `random` (= lần 2) | in-domain, ngẫu nhiên, +25/50/100% | 0–4 |
+| | `support`, `triggered` (= lần 3) | in-domain, gần vùng trigger nhất | 0 |
+| | **`ood` (mới)** | **benign của QA (StrategyQA paragraphs)**, ngẫu nhiên, +25/50/100% (500/1000/2000 tài liệu) | 0–4 |
+| GPU1 adversarial | `self`, `rival` (= lần 4) | bản ghi mang trigger của mình / poison của kẻ khác | 0–2 |
+| | `writeback` p5, p1 (= lần 5) | vòng kín theo 4 chính sách ghi | 0–2 |
+
+Thay đổi code (không đổi số liệu, chỉ thêm và làm nhanh hơn):
+- `retrieval_metrics` thêm khối `hit_curve` = hit@1/2/3/5. `hit_at_5` giữ nguyên là key chính.
+- Mã hoá `Q_eval` một lần cho mỗi (trigger, tập query) trong các probe memory (`cached_queries`).
+  Query không đổi khi memory đổi, nên số liệu giữ nguyên. Cache tắt ở drift eval để bộ đếm chi
+  phí không bị sai.
+- `--base-search-dir`: các probe của một lane dùng chung một lần tìm trigger `s0`. Phép tìm này
+  tất định, nên trigger giống hệt các lần trước.
+- OOD: mỗi seed xáo trộn kho QA một lần và dùng chung cho mọi episode. Các mức lồng nhau.
+  Tài liệu được mã hoá bằng đúng DPR, max_length 512.
+
+**Tiêu chí đọc (chốt trước):**
+1. **Kiểm tra tái lập trước tiên:** trigger `s0`, base hit@5 và hit@5 của từng mức ở
+   random/support/triggered/self/rival phải **trùng** với lần 2–4 (sai lệch ≤ 1e-3). Nếu lệch
+   thì ghi lại và tìm nguyên nhân **trước** khi đọc bất kỳ kết quả mới nào. Writeback so với
+   kernel lần 5 nếu nó đã xong.
+2. **Verdict chính vẫn dựa trên hit@5**, với luật và ngưỡng 0.05 như lần 3–5. hit@1/2/3 là
+   **metric phụ, chỉ mô tả**: báo trung bình và drop ghép cặp (CI) theo từng mức, nhưng **không**
+   dùng để lật verdict.
+3. **OOD:** dùng verdict của `summarize_growth` như lần 2.
+   - Câu hỏi "OOD làm ASR giảm mạnh hay yếu hơn in-domain": tính hiệu ghép cặp theo episode
+     `drop_ood − drop_random` ở +100%, với hit@5 và mean margin, bootstrap theo episode.
+   - Chỉ được nói "yếu hơn" hoặc "mạnh hơn" khi CI của hiệu này không chứa 0. Nếu không thì ghi
+     "không phân biệt được".
+   - Dự đoán ghi trước: cả hai đều drop < 0.05; drop margin của OOD ≤ của in-domain, vì tài liệu
+     QA còn xa vùng trigger hơn.
+4. **hit@k cho phần adversarial:** dự đoán hit@1 tụt **sớm hơn và mạnh hơn** hit@5 ở `self`,
+   vì bản ghi mang trigger chiếm hạng 1 trước, rồi mới đẩy poison ra khỏi top-5. Đọc mức nhỏ
+   nhất mà drop của hit@k ≥ 0.05, với từng k.
+5. Báo `off_hit` cạnh mọi con số, như các lần trước.
+
 Toàn bộ luận điểm của MCAT (memory-conditioned trigger + amortization) chỉ tồn
 tại nếu **cả hai** mệnh đề sau đều SAI:
 
@@ -486,6 +600,84 @@ cấp **cùng** quyền đó. Đối chiếu riêng với Zhong (chỉ sửa cor
 - [ ] G4: bảng threat model + đoạn so sánh với Zhong / PoisonedRAG.
 - [ ] Đọc thêm các paper related work còn lại theo cùng khuôn: *bài học → map
   vào code → gap*.
+
+---
+
+## P4. Hướng xuất bản 2027: agent tự ghi lại vào memory (write-back)
+
+Ghi ngày 2026-10-05. Đích: ACL (ARR 4/1), IJCAI (11/1), CCS C1 (16/1), SIGIR (21/1),
+USENIX Sec C2 (26/1), tất cả năm 2027.
+
+### Hạn chế xuất phát (đã kiểm tra trong code)
+
+Benchmark backdoor memory kiểu AgentPoison đánh giá trên memory **tĩnh**: poison được chèn
+một lần, sau đó memory không đổi suốt lúc đánh giá. Nhưng agent thật **ghi lại** tương tác
+của chính nó, và những tương tác có trigger cũng sẽ nằm trong memory. Bằng chứng trong repo:
+- AgentDriver: `insert`/`update` của memory chỉ `raise NotImplementedError`
+  (`agentdriver/memory/memory_agent.py:210-214`), nên không bao giờ có ghi lại.
+- EHRAgent: agent gốc có cập nhật long-term memory, nhưng bản harness AgentPoison đã
+  **comment dòng đó đi** (`EhrAgent/ehragent/main.py:159`, `# user_proxy.update_memory(...)`).
+
+Lần 4 cho thấy việc ghi lại đổi kết quả: chỉ 10 bản ghi mang trigger đã làm `hit@5` tụt
+0.109. Cơ chế cụ thể như sau:
+- Trigger kéo mọi query có nó về một **vùng hẹp** trong không gian embedding.
+- Lúc đầu vùng đó chỉ có 5 poison, nên poison luôn vào top-5.
+- Mỗi lần agent ghi lại một tương tác có trigger, bản ghi đó cũng nằm **trong chính vùng
+  này**. Bản ghi mang nhãn lành và tranh chỗ top-5 với poison.
+- Trigger càng được dùng nhiều thì poison càng bị chen ra. Đó là "tự pha loãng".
+
+Như vậy con số đo trên memory tĩnh có thể **sai cả hai chiều**:
+- Nếu bản ghi mang **nhãn lành**, tấn công yếu dần, và memory tĩnh **phóng đại** sức mạnh tấn công.
+- Nếu agent ghi luôn **kết quả đã bị điều khiển** (hành vi độc thành "kinh nghiệm"), mỗi
+  lần nổ lại thêm một poison. Khi đó memory tĩnh **đánh giá thấp** tấn công, và việc
+  phòng thủ bằng cách xoá poison gốc có thể không còn đủ.
+
+### Kiểm tra literature (2026-10-05): hạn chế có tồn tại không?
+
+| Công trình | Đã làm | Còn thiếu so với hướng này |
+|---|---|---|
+| [MINJA](https://arxiv.org/abs/2503.03704) (2025) | tiêm memory chỉ qua query; agent tự lưu bản ghi độc | không dùng trigger tối ưu; không xét chính sách ghi |
+| [A-MemGuard](https://arxiv.org/abs/2510.02373) (ICML 2026) | **đo** vòng lặp tự củng cố (ISR tăng theo vòng, MINJA trên MMLU); phòng thủ bằng consensus + memory "bài học" | chỉ thấy chiều **củng cố**; không có trigger tối ưu; không so chính sách ghi |
+| [MemSecBench](https://arxiv.org/abs/2607.27080) (07/2026) | benchmark vòng đời Write–Execute–Forget, sửa chữa sau poisoning | abstract không nói tới trigger tối ưu hay động học theo số lần dùng |
+| [MemPoison](https://arxiv.org/abs/2605.29960) (05/2026) | trigger + payload sống sót qua extract/rewrite | đo một lần, không theo vòng tương tác |
+| [MEMSAD](https://arxiv.org/abs/2605.03482) (05/2026) | phát hiện bất thường embedding cho poison trong memory, có adaptive attacker | phát hiện trên ảnh chụp tĩnh |
+| [Coverage Is Not Containment](https://arxiv.org/abs/2608.16044) (08/2026) | phòng thủ lúc nạp vào bị giới hạn; phát hiện lúc truy hồi bằng "demand" của query | không xét agent tự ghi lại |
+| [Hidden in Memory](https://arxiv.org/abs/2605.15338), [Untrusted→Trusted Memory](https://arxiv.org/abs/2606.04329), [EvoBreak](https://arxiv.org/abs/2608.01759) | memory bền, kênh ghi, tổng hợp kinh nghiệm | không có trigger tối ưu; không có động học pha loãng/củng cố |
+
+Ghi chú đọc full text từng bài (ý tưởng, số liệu, hạn chế, tổng hợp):
+[`memory_poisoning_literature_2026.md`](memory_poisoning_literature_2026.md).
+
+**Kết luận:** "memory động" nói chung **đã đông** người làm năm 2026, nên không còn là gap.
+Gap **hẹp** còn lại, chưa thấy ai làm (chỉ kiểm qua abstract, cần đọc kỹ full text MemSecBench
+và A-MemGuard trước khi viết):
+1. Với backdoor **trigger tối ưu** (họ AgentPoison), ghi lại làm tấn công **mạnh lên hay
+   yếu đi**, và **chính sách ghi** quyết định chiều đó thế nào. A-MemGuard chỉ đo chiều củng
+   cố (MINJA); lần 4 của mình thấy chiều pha loãng. Hai kết quả này cùng đúng nếu chính sách
+   ghi là biến quyết định, và đó chính là điều lần 5 kiểm tra.
+2. **Dọn sạch poison gốc có còn đủ không** khi agent đã tự ghi bản ghi độc (`cleanup_hit`).
+3. Rủi ro: phần phòng thủ dựa trên mật độ embedding đã có MEMSAD và demand-detector. Nếu
+   làm phòng thủ thì phải khai thác **luồng ghi theo thời gian**, không chỉ một ảnh chụp.
+
+### Các bài dự kiến (mỗi hội nghị một đóng góp khác nhau, không dual submission)
+
+| Bài | Hội nghị | Câu hỏi / đóng góp | Phụ thuộc |
+|---|---|---|---|
+| **A (chính)** | USENIX Sec C2 (26/1); CCS C1 (16/1) nếu xong sớm, chọn **một** | Chính sách ghi quyết định backdoor phai đi hay ăn sâu; dọn poison gốc thất bại dưới `log_outcome`; biện pháp: ghi có kiểm chứng + cách ly bản ghi gần cụm trigger; adaptive attacker | lần 5 thoả tiêu chí 3 |
+| **B** | ACL (ARR 4/1) | Giao thức đánh giá: memory tĩnh đánh giá sai backdoor memory; đo trên AgentDriver, EHRAgent (bật lại write-back thật), ReAct; kèm kết quả R1/R2 (trigger phổ quát đủ, memory lành không hại) | phải tách rạch ròi với A: B = đo lường, A = bảo mật/phòng thủ |
+| **C** | SIGIR (21/1) | Phía dense retrieval: hình học vùng trigger khi index tự cập nhật; phát hiện lúc truy hồi dựa trên luồng ghi theo thời gian, đặt cạnh demand-detector | lần 5 + một RAG chuẩn (BEIR/PoisonedRAG) |
+| **D** | IJCAI (11/1) | Chính sách ghi như bài toán quyết định / trò chơi với kẻ tấn công: ghi gì và quên gì là tối ưu | mở rộng nếu kịp |
+
+Thực tế: còn khoảng 13 tuần, một người, chạy trên Kaggle T4. Chắc chắn làm được A + B, làm
+được C nếu kịp, D mở rộng thêm. Thứ tự hạn nộp là B (4/1) đến trước A (26/1), nên phải chốt
+ranh giới nội dung giữa B và A ngay từ đầu.
+
+### Cần làm (theo thứ tự)
+1. ~~Code `probe-writeback` + test~~ (2026-10-05, `writeback.py`, `tests/test_mcat_writeback.py`;
+   test logic thuần chạy được local, test CLI cần `transformers` → chạy trên Kaggle).
+2. Bật lại `update_memory` trong EHRAgent để có write-back **thật**, và xác định key của bản
+   ghi có chứa nguyên văn query (cùng trigger) hay không.
+3. Chạy lần 5 (2 arm) → viết file kết quả theo tiêu chí ở §"Lần chạy 5".
+4. Đọc full text MemSecBench, A-MemGuard, MEMSAD để chốt gap trước khi viết bài A/B.
 
 ---
 
