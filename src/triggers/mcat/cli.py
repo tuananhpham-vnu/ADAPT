@@ -651,6 +651,93 @@ def probe_writeback(args: argparse.Namespace) -> Path:
     return directory / WRITEBACK_SUMMARY
 
 
+def probe_e2e(args: argparse.Namespace) -> Path:
+    """P0 run 7: the agent reads its top-k, acts on it, and writes back (end to end)."""
+    import os
+    import time
+
+    from src.triggers.mcat.agent_ad import Contents
+    from src.triggers.mcat.e2e import (
+        E2E_ROWS, E2E_STREAM, E2E_SUMMARY, WRITE_POLICIES, DeadlineReached, E2EConfig,
+        e2e_probe, summarize_e2e,
+    )
+    from src.triggers.mcat.llm import CachedChat, LLMConfig
+
+    output_dir = Path(args.output_dir)
+    episodes, manifest = _load_episodes(output_dir)
+    workspace = _workspace(args)
+    config = _train_config(args)
+    checkpoint = _probe_checkpoint(args, manifest, workspace)
+    llm = LLMConfig(backend=args.llm_backend, model=args.llm_model,
+                    max_new_tokens=args.llm_max_new_tokens, batch_size=args.llm_batch_size,
+                    max_input_tokens=args.llm_max_input_tokens)
+    # Batch size changes speed, not answers: it stays out of the probe contract.
+    llm_fields = {key: value for key, value in asdict(llm).items() if key != "batch_size"}
+    probe = E2EConfig(
+        scenario=args.e2e_scenario, queries=args.e2e_queries,
+        self_levels=tuple(args.e2e_self_level), rival_levels=tuple(args.e2e_rival_level),
+        policies=tuple(policy for policy in (args.memory_write or WRITE_POLICIES)
+                       if policy != "none"),
+        stream=args.e2e_stream,
+        eval_levels=tuple(args.writeback_level or (args.e2e_stream,)),
+        seeds=tuple(args.e2e_seed), seed_poison=args.seed_poison, score=args.score,
+        llm=llm_fields)
+    target = [episode for episode in episodes if episode.split == args.split]
+    if not target:
+        raise ValueError(f"no episodes in split {args.split!r}")
+    domains = {episode.domain for episode in target}
+    if len(domains) != 1:
+        raise ValueError(f"probe-e2e runs one agent at a time, got domains {sorted(domains)}")
+    domain = domains.pop()
+
+    name = f"e2e_{args.e2e_scenario}" + ("" if args.seed_poison is None
+                                         else f"_p{args.seed_poison}")
+    directory = _probe_dir(args, name)
+    directory.mkdir(parents=True, exist_ok=True)
+    contract = _probe_contract(args, manifest, workspace, probe="e2e", config=probe)
+    _lock_probe_config(directory / "probe_config.json", contract)
+
+    if domain == "ad":
+        source = workspace.domain("ad")
+        contents = Contents.agentdriver(source.corpus_path, source.query_path,
+                                        documents=workspace.documents("ad"),
+                                        queries=workspace.queries("ad"))
+    else:
+        # Only AgentDriver has an agent here; other domains exercise the plumbing.
+        contents = Contents.synthetic(documents=workspace.documents(domain),
+                                      queries=workspace.queries(domain))
+    cache = Path(args.llm_cache) if args.llm_cache else output_dir / "llm_cache.jsonl"
+    chat = CachedChat(llm, cache, token=os.environ.get("HF_TOKEN"))
+    deadline = time.time() + 60 * args.deadline_minutes if args.deadline_minutes else None
+
+    state = "completed"
+    ledger = CostLedger(device=str(workspace.retriever.device))
+    try:
+        with ledger.active():
+            e2e_probe(
+                workspace, target, config, probe, chat=chat, contents=contents,
+                checkpoint=checkpoint, output_dir=directory, contract=contract,
+                ratios=tuple(manifest["ratios"]), split_seed=manifest["seed"],
+                ledger=ledger, deadline=deadline,
+            )
+    except DeadlineReached as error:
+        # Rows hold whole states only; the summary says which ones are missing.
+        state = "partial"
+        print(f"!! {error}; summarizing the states that finished", flush=True)
+    summary = summarize_e2e(load_rows(directory / E2E_ROWS), load_rows(directory / E2E_STREAM),
+                            iterations=args.bootstrap_iterations, seed=args.seed)
+    summary.update({"state": state, "scenario": args.e2e_scenario, "directory": str(directory),
+                    "llm": asdict(llm), "llm_new_answers": chat.calls,
+                    "llm_cache": str(cache)})
+    atomic_json(directory / E2E_SUMMARY, summary)
+    atomic_json(directory / "costs.json", ledger.to_json())
+    atomic_json(output_dir / f"stages/probe-{name}.json",
+                {"state": state, "split": args.split, "directory": str(directory)})
+    print(json.dumps({key: summary.get(key) for key in ("state", "gates", "writeback")},
+                     ensure_ascii=False, indent=2, default=str))
+    return directory / E2E_SUMMARY
+
+
 def probe_position(args: argparse.Namespace) -> Path:
     """P1: score the trigger at the head, the tail, the middle and both ends."""
     output_dir = Path(args.output_dir)
@@ -1017,6 +1104,32 @@ def add_common(parser: argparse.ArgumentParser) -> None:
     probes.add_argument("--seed-poison", type=int, default=None,
                         help="probe-writeback: keep only the first N frozen poison "
                              "records, to lower the base hit off the ceiling")
+    probes.add_argument("--e2e-scenario", choices=("static", "writeback"), default="static",
+                        help="probe-e2e: static = memory states of runs 2-4; writeback = "
+                             "closed loop where the agent's own action decides the write")
+    probes.add_argument("--e2e-queries", type=int, default=32,
+                        help="probe-e2e: the first N queries of each episode's Q_eval")
+    probes.add_argument("--e2e-self-level", type=int, nargs="*", default=[1, 5, 25],
+                        help="probe-e2e static: self records added (empty = skip)")
+    probes.add_argument("--e2e-rival-level", type=int, nargs="*", default=[15],
+                        help="probe-e2e static: rival attackers added (empty = skip)")
+    probes.add_argument("--e2e-stream", type=int, default=50,
+                        help="probe-e2e writeback: triggered interactions streamed")
+    probes.add_argument("--e2e-seed", type=int, nargs="+", default=[0],
+                        help="probe-e2e: draws of the self records / rivals / stream; "
+                             "seed s is the draw of runs 4-5 with the same seed")
+    probes.add_argument("--llm-backend", choices=("hf", "vllm", "fixture"), default="hf")
+    probes.add_argument("--llm-model", default="NousResearch/Meta-Llama-3-8B-Instruct",
+                        help="ungated mirror of meta-llama/Meta-Llama-3-8B-Instruct")
+    probes.add_argument("--llm-batch-size", type=int, default=8)
+    probes.add_argument("--llm-max-new-tokens", type=int, default=320)
+    probes.add_argument("--llm-max-input-tokens", type=int, default=6144)
+    probes.add_argument("--llm-cache", type=Path, default=None,
+                        help="answer cache (JSONL); defaults to <output-dir>/llm_cache.jsonl, "
+                             "shared by every probe-e2e directory of the run")
+    probes.add_argument("--deadline-minutes", type=float, default=None,
+                        help="probe-e2e: stop starting new states after this long and "
+                             "summarize what finished")
     probes.add_argument("--position", action="append", choices=POSITIONS, default=None,
                         help="repeatable; defaults to suffix/prefix/both/middle")
     probes.add_argument("--position-mode", choices=("transfer", "reoptimize"),
@@ -1046,7 +1159,7 @@ def parser() -> argparse.ArgumentParser:
         ("adapt", adapt_stage), ("evaluate-drift", evaluate_drift_stage),
         ("probe-growth", probe_growth), ("probe-position", probe_position),
         ("probe-universal", probe_universal), ("probe-contamination", probe_contamination),
-        ("probe-writeback", probe_writeback),
+        ("probe-writeback", probe_writeback), ("probe-e2e", probe_e2e),
         ("report", report), ("smoke", smoke),
     ):
         stage = subparsers.add_parser(name, help=handler.__doc__)

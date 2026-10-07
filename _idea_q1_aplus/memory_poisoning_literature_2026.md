@@ -113,3 +113,74 @@ Hai tín hiệu bên phòng thủ có được mà kẻ tấn công khó kiểm 
 
 Ba câu hỏi mà phòng thủ hiện có chưa trả lời: MEMSAD chấm từng bản ghi nên không thấy cụm lớn
 dần; A-MemGuard tốn khoảng 7.8K token mỗi query; MemSecBench dừng ở một chu kỳ.
+
+---
+
+## Đọc full text + quét bài mới (2026-10-07)
+
+Đọc bản HTML đầy đủ trên arXiv (qua công cụ tóm tắt; **vẫn phải đối chiếu PDF trước khi trích**).
+
+### Ba bài cần chốt gap: xác nhận
+
+| Bài | Trigger tối ưu? | Agent tự ghi nhiều vòng? | Chính sách ghi là biến? | Thấy pha loãng? | Thử xoá poison gốc sau khi agent tự ghi? |
+|---|---|---|---|---|---|
+| MemSecBench | không (tấn công gắn vào tác vụ, ngôn ngữ tự nhiên) | không (Write–Execute–Forget, mỗi giai đoạn một lượt) | không (mỗi backend dùng cơ chế ghi mặc định) | không đo | không (Forget chỉ so trạng thái backend, không có đường "tái nhiễm" qua output của agent) |
+| A-MemGuard | AgentPoison có, nhưng memory **tĩnh** | chỉ với MINJA/MMLU (Fig. 3: ISR tăng theo vòng, **không có bảng số**) | không nêu chính sách ghi | không | không |
+| MEMSAD | AgentPoison có | không mô hình hoá write-back | không | không | không |
+
+Thêm từ MEMSAD: bản tái lập AgentPoison chấm bằng query **không trigger** cho ASR-R 0.25, còn có
+trigger thì 1.00. Các lần chạy của mình luôn chấm `Q_eval` có trigger, và báo riêng `off_hit`.
+
+### Bài mới phải trích, và chỗ chúng chạm vào gap
+
+| Bài | Đã làm | Chạm gap ở đâu | Khác mình ở đâu |
+|---|---|---|---|
+| [Zombie Agents](https://arxiv.org/abs/2602.15654) (02/2026) | injection ngôn ngữ tự nhiên qua web. Agent tự ghi payload vào memory (sliding window / RAG), payload **tự nhân bản** qua các phiên. So 3 "hàm tiến hoá" memory: Raw History ≈ 77% ASR, Verbal Reflection ≈ 12%, Refined Experience ≈ 3–15% (Fig. 4) | **gần nhất**: cách agent ghi memory đổi được ASR | không có trigger tối ưu. Không có mốc "không ghi" nên không biết ghi có **làm yếu đi** tấn công so với memory tĩnh hay không. Không thử xoá nguồn độc. Chỉ có hình, không có bảng số theo vòng |
+| [SkillJack](https://arxiv.org/abs/2608.03509) (08/2026) | trải nghiệm độc → pipeline **trích skill** (SkillX, A2S) → skill bền. **80% tấn công còn sống sau khi xoá bản ghi gốc** | trùng hiện tượng "dọn poison gốc không đủ" | cơ chế khác: skill tách khỏi kho trải nghiệm (lifecycle isolation). Không phải agent ghi lại chính tương tác bị kích hoạt. Không trigger tối ưu, không so chính sách, không đo theo số lần dùng. Một LLM (DeepSeek-v4-flash) |
+| [MemoryGraft](https://arxiv.org/abs/2512.16962) (12/2025) | trải nghiệm độc "không trigger" trong RAG của MetaGPT DataInterpreter; PRP 0.479 | — | không write-back, không theo thời gian, 12 query |
+| [OEP](https://arxiv.org/abs/2605.18930) (05/2026) | trải nghiệm "đúng cục bộ" bị agent tổng quát hoá quá mức khi reflection | agent tin quá mức vào reflection tự sinh | không trigger, không so chính sách ghi |
+| [Revoked but Still Authoritative](https://arxiv.org/abs/2609.08258) (09/2026) | 5 hệ memory không thực thi thu hồi: fact đã thu hồi vẫn được truy hồi và dẫn tới hành động sai | "xoá/thu hồi không đủ" | về thu hồi fact, không về backdoor hay write-back |
+| [Utility Under Attack](https://arxiv.org/abs/2608.21230) (08/2026) | 1.2% corpus độc làm accuracy 0.85 → 0.30. Content screening bắt 0/360. Provenance ranking với trọng số mặc định không khác không phòng thủ (p = 0.80) | phòng thủ lúc ghi thất bại | không trigger, không write-back |
+
+### EHRAgent gốc ghi memory thế nào (P4, bước 2): **đã trả lời**
+
+`wshi83/EhrAgent/ehragent/main.py`:
+- trước mỗi câu hỏi gọi `user_proxy.update_memory(num_shots, long_term_memory)`;
+- `if result:` (tức `judge()` khớp ground truth) thì append `{"question": question, "knowledge": ..., "code": ...}`.
+
+Như vậy:
+1. Chính sách gốc của EHRAgent chính là **`verified`** (chỉ ghi khi đáp án đúng).
+2. Key = `question` **nguyên văn**. Fork AgentPoison nối trigger vào `question` *trước* `initiate_chat`
+   (`main.py` trong repo), nên bản ghi mang trigger. Giả định "key = query + trigger" của lần 5/7
+   **khớp** EHRAgent thật.
+3. Một lần tấn công thành công (code chứa `DeleteDB`) cho đáp án sai nên **không** được ghi; một lần
+   trigger không nổ cho đáp án đúng nên **được** ghi, kèm trigger. Theo lần 6 (`verified` pha loãng
+   −0.11 ở arm 1 poison), vòng memory gốc của EHRAgent sẽ **tự làm yếu** AgentPoison theo thời gian.
+   Đây là dự đoán kiểm được nếu bật lại dòng `update_memory` đang bị comment (`main.py:159`).
+   Cần database eICU để `judge()` chạy được.
+
+### Gap sau khi đọc (thu hẹp lại so với 2026-10-05)
+
+"Cách ghi memory ảnh hưởng tấn công" **không còn mới hoàn toàn**: Zombie Agents đã cho thấy hàm tiến
+hoá đổi ASR (77% → 3–15%); SkillJack cho thấy xoá bản ghi gốc không đủ (80%). Phần còn lại, theo những
+gì đã đọc thì chưa ai làm:
+1. **Backdoor trigger tối ưu** (họ AgentPoison) dưới write-back. Mọi bài trên đều dùng injection ngôn
+   ngữ tự nhiên.
+2. **Cả hai chiều trên cùng một tấn công, so với mốc memory tĩnh.** Cùng trigger, cùng stream, chỉ đổi
+   chính sách ghi, thì backdoor **mạnh lên** (`log_outcome` +0.063) hoặc **yếu đi dưới mốc tĩnh**
+   (`corrected` −0.83, `verified` −0.11). Zombie Agents không có mốc "không ghi", nên không nói được ghi
+   có **làm yếu đi** tấn công hay không.
+3. **Cơ chế pha loãng riêng của trigger tối ưu:** bản ghi lành mang trigger chiếm hạng 1 trước poison
+   (`self`: 1 bản ghi làm hit@1 tụt 0.142). Ngôn ngữ tự nhiên không có hiện tượng này, vì không có vùng
+   embedding hẹp do tối ưu tạo ra.
+4. **Dọn poison gốc thất bại do chính agent tự ghi lại các lần bị kích hoạt** (`cleanup_hit` 1.00).
+   Cơ chế khác SkillJack (trích skill), nhưng phải trích SkillJack như hiện tượng song song.
+5. **Hệ quả cho agent thật:** chính sách gốc của EHRAgent là `verified`, nên số đo trên memory tĩnh
+   **đánh giá sai** AgentPoison trên EHRAgent đang chạy.
+6. **End-to-end** (lần 7): con số ở mức hành động, không chỉ truy hồi. Nếu lần 7 đứng thì đây là bằng
+   chứng phân biệt với mọi bài trên (đa số chỉ có ASR ở một tầng).
+
+Rủi ro reviewer: "Zombie Agents đã cho thấy evolution function quan trọng". Trả lời: (a) trigger tối ưu
+khác hẳn về cơ chế, vì có vùng embedding hẹp và tự cạnh tranh; (b) mình có mốc tĩnh và có **cả hai
+chiều**; (c) có thí nghiệm xoá poison gốc; (d) chính sách ghi được tách thành biến có kiểm soát (cùng
+stream, cùng seed), không phải ba kiến trúc memory khác nhau.

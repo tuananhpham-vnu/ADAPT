@@ -26,7 +26,7 @@ from src.triggers.artifacts import append_jsonl, stable_hash
 
 Messages = list[dict[str, str]]
 BACKENDS = ("hf", "vllm", "fixture")
-DEFAULT_LLM = "meta-llama/Meta-Llama-3-8B-Instruct"
+DEFAULT_LLM = "NousResearch/Meta-Llama-3-8B-Instruct"  # ungated mirror of meta-llama/...
 
 
 @dataclass(frozen=True)

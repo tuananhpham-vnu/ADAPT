@@ -117,6 +117,21 @@ BOOTSTRAP="${BOOTSTRAP:-10000}"
 # episode instead of repeating it (the search is the same whichever probe asks).
 BASE_SEARCH_DIR="${BASE_SEARCH_DIR:-}"
 
+# probe-e2e (run 7). An empty E2E_SELF_LEVELS / E2E_RIVAL_LEVELS skips that state;
+# leaving it unset keeps the default.
+E2E_SCENARIO="${E2E_SCENARIO:-static}"
+E2E_QUERIES="${E2E_QUERIES:-32}"
+E2E_SELF_LEVELS="${E2E_SELF_LEVELS-1 5 25}"
+E2E_RIVAL_LEVELS="${E2E_RIVAL_LEVELS-15}"
+E2E_STREAM="${E2E_STREAM:-50}"
+E2E_SEEDS="${E2E_SEEDS:-0}"
+LLM_BACKEND="${LLM_BACKEND:-hf}"
+LLM_MODEL="${LLM_MODEL:-NousResearch/Meta-Llama-3-8B-Instruct}"
+LLM_BATCH="${LLM_BATCH:-8}"
+LLM_MAX_NEW="${LLM_MAX_NEW:-320}"
+LLM_CACHE="${LLM_CACHE:-}"
+DEADLINE_MINUTES="${DEADLINE_MINUTES:-}"
+
 RESUME="${RESUME:-0}"
 SKIP_PREFLIGHT="${SKIP_PREFLIGHT:-0}"
 FIXTURE="${FIXTURE:-0}"
@@ -191,6 +206,7 @@ PY
   local tests="$RUN_ROOT/_preflight-tests.log"
   if ! $PYTHON -m unittest tests.test_mcat_probes tests.test_mcat_drift \
        tests.test_mcat_pipeline tests.test_mcat_writeback tests.test_mcat_hit_curve \
+       tests.test_mcat_e2e \
        > "$tests" 2>&1; then
     tail -25 "$tests"
     echo "!! unit tests failed; see $tests" >&2
@@ -318,6 +334,36 @@ probe_writeback () {
     echo "!! writeback failed; last lines of $log:"; tail -20 "$log"; return 1
   fi
   echo "   done -> $out/probes/$WRITEBACK_DIR-suffix-$PROBE_SPLIT/probe_writeback.json"
+}
+
+probe_e2e () {
+  echo ""
+  echo ">> P0 run 7: end to end ($E2E_SCENARIO, LLM $LLM_BACKEND:$LLM_MODEL, seed poison: ${SEED_POISON:-all})"
+  local out log name
+  out=$(arm_dir b2)
+  name="e2e_$E2E_SCENARIO"
+  [ -n "$SEED_POISON" ] && name="${name}_p$SEED_POISON"
+  log="$RUN_ROOT/$name.console"
+  local common="--output-dir $out $EPISODE_FLAGS $RETRIEVER_FLAGS"
+  local extra="--e2e-scenario $E2E_SCENARIO --e2e-queries $E2E_QUERIES \
+--e2e-self-level $E2E_SELF_LEVELS --e2e-rival-level $E2E_RIVAL_LEVELS \
+--e2e-stream $E2E_STREAM --e2e-seed $E2E_SEEDS --llm-backend $LLM_BACKEND \
+--llm-model $LLM_MODEL --llm-batch-size $LLM_BATCH --llm-max-new-tokens $LLM_MAX_NEW"
+  [ -n "$SEED_POISON" ] && extra="$extra --seed-poison $SEED_POISON"
+  [ -n "$WRITEBACK_LEVELS" ] && extra="$extra --writeback-level $WRITEBACK_LEVELS"
+  [ -n "$LLM_CACHE" ] && extra="$extra --llm-cache $LLM_CACHE"
+  [ -n "$DEADLINE_MINUTES" ] && extra="$extra --deadline-minutes $DEADLINE_MINUTES"
+  (
+    set -e
+    prepare_arm b2 direct-logit
+    $PYTHON -m src.triggers.mcat probe-e2e $common $TRAIN_FLAGS \
+      --mode direct-logit --split "$PROBE_SPLIT" $extra \
+      --bootstrap-iterations "$BOOTSTRAP"
+  ) > "$log" 2>&1
+  if [ $? -ne 0 ]; then
+    echo "!! e2e failed; last lines of $log:"; tail -20 "$log"; return 1
+  fi
+  echo "   done -> $out/probes/$name-suffix-$PROBE_SPLIT/probe_e2e.json"
 }
 
 probe_r1 () {
@@ -462,8 +508,8 @@ fi
 
 for probe in "${PROBES[@]}"; do
   case "$probe" in
-    r2|r1|position|contam|writeback) ;;
-    *) echo "!! unknown probe: $probe (choose r2, r1, position, contam, writeback, all, preflight)" >&2
+    r2|r1|position|contam|writeback|e2e) ;;
+    *) echo "!! unknown probe: $probe (choose r2, r1, position, contam, writeback, e2e, all, preflight)" >&2
        exit 1 ;;
   esac
 done
@@ -483,6 +529,7 @@ for probe in "${PROBES[@]}"; do
     position) probe_position || failed+=(position) ;;
     contam)   probe_contam   || failed+=(contam) ;;
     writeback) probe_writeback || failed+=(writeback) ;;
+    e2e)      probe_e2e      || failed+=(e2e) ;;
   esac
 done
 
