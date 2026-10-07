@@ -234,6 +234,18 @@ Thay đổi code (không đổi số liệu, chỉ thêm và làm nhanh hơn):
    nhất mà drop của hit@k ≥ 0.05, với từng k.
 5. Báo `off_hit` cạnh mọi con số, như các lần trước.
 
+> **Kết quả lần chạy 6 (gồm cả lần 5, 2026-10-06) → [`p0_run6_rerun_results.md`](p0_run6_rerun_results.md).**
+> - Tái lập **khớp tuyệt đối** với lần 2–4 (848/848 dòng).
+> - Benign: in-domain drop hit@5 0.0004, OOD drop **0**; OOD yếu hơn theo margin, không phân
+>   biệt được theo hit@5.
+> - `self`: **1** bản ghi đã làm hit@1 tụt 0.142. `rival`: hit@1 tụt 0.092 ở 15 kẻ tấn công
+>   (hit@5 chỉ 0.004).
+> - Write-back: **claim chính đứng được**.
+>   - `corrected` pha loãng (−0.63 / −0.83).
+>   - `log_outcome` củng cố (+0.063 ở arm 1 poison), và backdoor **tồn tại sau khi xoá poison
+>     gốc** (`cleanup_hit` 1.00).
+>   - `verified` đúng H2 ở arm 5 poison nhưng **sai** ở arm 1 poison (pha loãng −0.11).
+
 Toàn bộ luận điểm của MCAT (memory-conditioned trigger + amortization) chỉ tồn
 tại nếu **cả hai** mệnh đề sau đều SAI:
 
@@ -676,7 +688,8 @@ ranh giới nội dung giữa B và A ngay từ đầu.
    test logic thuần chạy được local, test CLI cần `transformers` → chạy trên Kaggle).
 2. Bật lại `update_memory` trong EHRAgent để có write-back **thật**, và xác định key của bản
    ghi có chứa nguyên văn query (cùng trigger) hay không.
-3. Chạy lần 5 (2 arm) → viết file kết quả theo tiêu chí ở §"Lần chạy 5".
+3. ~~Chạy lần 5 (2 arm) → viết file kết quả~~ (2026-10-06, gộp vào lần 6:
+   [`p0_run6_rerun_results.md`](p0_run6_rerun_results.md)).
 4. Đọc full text MemSecBench, A-MemGuard, MEMSAD để chốt gap trước khi viết bài A/B.
 
 ---
