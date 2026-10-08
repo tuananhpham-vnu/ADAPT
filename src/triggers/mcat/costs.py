@@ -58,6 +58,20 @@ def current() -> "CostLedger | None":
     return _ACTIVE.get()
 
 
+@contextmanager
+def unmetered():
+    """Run a diagnostic without charging any open ledger.
+
+    VN — Chạy phép đo chẩn đoán (control) mà không tính tiền: control không
+    phải việc kẻ tấn công làm, tính vào sẽ làm sai break-even.
+    """
+    token = _ACTIVE.set(None)
+    try:
+        yield
+    finally:
+        _ACTIVE.reset(token)
+
+
 def record(name: str, amount: float = 1) -> None:
     """Charge ``amount`` to ``name`` on every open ledger; a no-op without one.
 

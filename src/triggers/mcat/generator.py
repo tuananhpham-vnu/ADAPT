@@ -37,7 +37,10 @@ class SetEncoder(nn.Module):
 
     def __init__(self, input_dim: int, hidden: int, output: int, *, attention: bool = False):
         super().__init__()
+        # Raw DPR pooler outputs are large and uncentred; without this the first
+        # layers saturate and so does everything downstream.
         self.element = nn.Sequential(
+            nn.LayerNorm(input_dim, elementwise_affine=False),
             nn.Linear(input_dim, hidden), nn.GELU(), nn.Linear(hidden, hidden), nn.GELU(),
         )
         self.attention = nn.Linear(hidden, 1) if attention else None
@@ -89,10 +92,13 @@ class TriggerGenerator(nn.Module):
         self.constant_memory = nn.Parameter(torch.randn(constant_rows, embedding_dim) * 0.02)
         self.constant_query = nn.Parameter(torch.randn(constant_rows, embedding_dim) * 0.02)
 
-        self.positions = nn.Parameter(torch.randn(trigger_tokens, context_dim) * 0.02)
+        # The context is layer-normed, so positions start at the same unit scale;
+        # at 0.02 they were invisible next to it.
+        self.context_norm = nn.LayerNorm(2 * context_dim)
+        self.positions = nn.Parameter(torch.randn(trigger_tokens, context_dim))
         self.trunk = nn.Sequential(
             nn.Linear(3 * context_dim, hidden), nn.GELU(),
-            nn.Linear(hidden, hidden), nn.GELU(),
+            nn.Linear(hidden, hidden), nn.GELU(), nn.LayerNorm(hidden),
         )
         self.head = nn.Linear(hidden, vocab_size)
 
@@ -114,10 +120,17 @@ class TriggerGenerator(nn.Module):
         memory_vectors: torch.Tensor | None = None,
         query_vectors: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        pooled = self.context(memory_vectors, query_vectors)
+        pooled = self.context_norm(self.context(memory_vectors, query_vectors))
         repeated = pooled.unsqueeze(0).expand(self.trigger_tokens, -1)
         hidden = self.trunk(torch.cat((repeated, self.positions), dim=-1))
-        return self.head(hidden)
+        # muP-style 1/fan-in readout.  Adam moves every weight of a head row by
+        # ~lr per step in the same direction, so a plain readout grows a logit
+        # ~hidden times faster than B2/B3's free logits matrix.  In the
+        # AgentDriver pilot (2026-09-30) that made the Gumbel-softmax one-hot
+        # within 25 steps: grad norm 0.0 for the remaining 375 and one
+        # repeated token.  With the multiplier the logits move at the matrix's
+        # pace, so M1 vs B3 compares conditioning, not optimizer dynamics.
+        return self.head(hidden) / self.head.in_features
 
 
 def sample_memory_keys(

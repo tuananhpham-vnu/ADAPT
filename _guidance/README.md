@@ -20,6 +20,8 @@ hỏi "tôi phải gõ gì, theo thứ tự nào".
 | `21_specificity_pipeline_stages_agentpoison.md` | Các stage của pipeline specificity trên AgentPoison. |
 | `22_mcat_m3_drift_plan.md` | **Kế hoạch** M3 của MCAT: memory drift, few-step adaptation, cost accounting và break-even. Chưa có code. |
 | `23_aqua_agent_generation_plan.md` | **Kế hoạch** bước kế tiếp của AQuA: agent tự sinh tool call thay cho candidate replay, và tập clean benign. Chưa có code. |
+| `24_p0_probe_kaggle_runbook.md` | Chạy probe P0/P1 (R2, R1, vị trí) trên Kaggle, bản viết cho lần chạy 1. |
+| `25_helper_tong_hop.md` | **Đọc đầu tiên nếu không muốn đọc code**: bản đồ thư mục, từ vựng, config, từng stage của pipeline MCAT / probe P0 / Kaggle, output nằm đâu, lỗi thường gặp. |
 | `run.md` | Ghi chú chạy demo Corba. |
 
 ## Hướng mở rộng ARTEMIS (kiểm thử prompt của MAS)

@@ -25,6 +25,7 @@
 #
 # Arms (see _idea/memory_conditioned_generator_Q1_A_star.md section 9):
 #   m1      memory+query generator ............ the method
+#   b1      HotFlip, per episode (AgentPoison) . the published search, same budget
 #   b2      direct logits, per episode ........ what the optimizer alone buys
 #   b3      one universal logits matrix ....... is a single trigger already enough
 #   b4      unconditional generator ........... is the network just memorizing one answer
@@ -37,8 +38,11 @@
 #    scorer at M0-M2, so do not reserve two.
 #  * scikit-learn is required: src.triggers.clustering.fit_centers supplies the benign
 #    reference centers. Without it `train` stops, by design.
-#  * --domain ad will fail: agentdriver/data/finetune/data_samples_train.json is
-#    not vendored. Do not describe results as covering three agent domains.
+#  * --domain ad needs agentdriver/data/finetune/data_samples_{train,val}.json, which
+#    are not vendored (gdown ids in src/triggers/mcat/domains.py AD_MISSING). Its
+#    keys run to ~580 tokens at p90, so use MAX_LENGTH=512 and a smaller OPTIMIZATION
+#    to keep the backward pass inside a T4, e.g.
+#      DOMAINS=ad MAX_LENGTH=512 OPTIMIZATION=16 bash scripts/run_mcat.sh m1
 set -u
 # Without pipefail a failing `cmd | tail` reports tail's status, so a broken test
 # run would sail straight through the preflight and into the GPU stages.
@@ -140,6 +144,7 @@ DRIFT_FLAGS="--growth $GROWTH $METHOD_FLAGS --write-policy $WRITE_POLICY \
 arm_flags () {
   case "$1" in
     m1)     echo "--mode generator --variant memory+query --lambda-ret 0.0" ;;
+    b1)     echo "--mode hotflip --hotflip-candidates ${HOTFLIP_CANDIDATES:-100} --lambda-ret 0.0" ;;
     b2)     echo "--mode direct-logit --lambda-ret 0.0" ;;
     b3)     echo "--mode universal-logit --lambda-ret 0.0" ;;
     b4)     echo "--mode generator --variant none --lambda-ret 0.0" ;;
@@ -277,14 +282,19 @@ for arm in sys.argv[1:]:
     controls = data.get("controls", {}).get("shuffled_context", {})
     if controls.get("applicable"):
         note = f"shuffled-context changed {controls['changed']}/{controls['episodes']}"
+        effect = controls.get("metric_effect", {})
+        if "on_hit" in effect:
+            drop = effect["on_hit"]["drop"]["mean_difference"]
+            note += f", hit drop {drop:+.3f} -> {effect['verdict']}"
     else:
         note = f"shuffled-context n/a ({controls.get('reason', '-')})"
     print(f"  {arm:<8} {hit:>7.3f} {occ:>7.3f} {on['mean_margin']:>9.3f} "
           f"{data['false_activation']:>10.3f} {data['round_trip_valid_rate']:>6.2f}  {note}")
 print()
 print("  Read these before quoting any of it:")
-print("   * a low shuffled-context change rate means the memory branch is inert")
-print("     and the conditioning claim is NOT supported -- a valid negative result.")
+print("   * the shuffled-context verdict (memory-used / memory-inert) is read from")
+print("     the paired ASR-r drop on the episode's own memory, not the change rate;")
+print("     memory-inert means the conditioning claim is NOT supported.")
 print("   * rt-ok below 1.00 means triggers broke on decode; loss gains are then void.")
 print("   * false-act is only meaningful when the snapshot is much larger than K;")
 print("     read it per domain in evaluation.jsonl, not as this average.")
@@ -294,7 +304,7 @@ PY
 ARMS=("$@")
 [ ${#ARMS[@]} -eq 0 ] && ARMS=("m1")
 if [ "${ARMS[0]}" = "all" ]; then
-  ARMS=(m1 b2 b3 b4 b5 b6 margin)
+  ARMS=(m1 b1 b2 b3 b4 b5 b6 margin)
 fi
 
 if [ "${ARMS[0]}" = "preflight" ]; then

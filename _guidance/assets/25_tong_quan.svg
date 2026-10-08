@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1170 572" width="1170" height="572" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker></defs>
+<rect width="1170" height="572" rx="12" fill="#ffffff"/>
+<rect x="10" y="86" width="255" height="350" rx="10" fill="#fbfcfe" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="20" y="103" font-size="12.5" font-weight="600" fill="#334155">Ai gọi ai  (§7 → §6 → §5)</text>
+<rect x="290" y="86" width="860" height="110" rx="10" fill="#f8fbff" stroke="#93c5fd" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="300" y="103" font-size="12.5" font-weight="600" fill="#334155">Pipeline MCAT  (§5)</text>
+<rect x="290" y="236" width="860" height="200" rx="10" fill="#f7fdf9" stroke="#86efac" stroke-width="1.5" stroke-dasharray="6 4"/>
+<text x="300" y="253" font-size="12.5" font-weight="600" fill="#334155">Probe P0  (§6) · trigger tìm ở s0 rồi đóng băng, mỗi probe chỉ đổi một thứ</text>
+<rect x="25" y="118" width="225" height="70" rx="8" fill="#eef2f7" stroke="#64748b" stroke-width="1.6"/>
+<text x="137.5" y="149.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">.kaggle/&lt;kernel&gt;/run.py</text>
+<text x="137.5" y="165.0" text-anchor="middle" font-size="11.5" fill="#475569">Kaggle T4×2 · clone + overlay</text>
+<rect x="25" y="228" width="225" height="70" rx="8" fill="#eef2f7" stroke="#64748b" stroke-width="1.6"/>
+<text x="137.5" y="259.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">scripts/run_p0_probes.sh</text>
+<text x="137.5" y="275.0" text-anchor="middle" font-size="11.5" fill="#475569">biến môi trường → cờ CLI</text>
+<rect x="25" y="338" width="225" height="70" rx="8" fill="#eef2f7" stroke="#64748b" stroke-width="1.6"/>
+<text x="137.5" y="369.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">python -m src.triggers.mcat</text>
+<text x="137.5" y="385.0" text-anchor="middle" font-size="11.5" fill="#475569">&lt;stage&gt; · cli.py</text>
+<rect x="300" y="14" width="520" height="44" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.6"/>
+<text x="560.0" y="40.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Segoe UI, Helvetica, Arial, sans-serif" fill="#0f172a">Dữ liệu:  ReAct/ (qa) · EhrAgent/ (ehr) · agentdriver/ (ad)</text>
+<rect x="300" y="118" width="145" height="64" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/>
+<text x="372.5" y="138.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">prepare-episodes</text>
+<text x="372.5" y="154.0" text-anchor="middle" font-size="11.5" fill="#475569">manifest.json</text>
+<text x="372.5" y="170.0" text-anchor="middle" font-size="11.5" fill="#475569">episodes.jsonl</text>
+<rect x="470" y="118" width="145" height="64" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/>
+<text x="542.5" y="146.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">index</text>
+<text x="542.5" y="162.0" text-anchor="middle" font-size="11.5" fill="#475569">vector → cache/</text>
+<rect x="640" y="118" width="145" height="64" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/>
+<text x="712.5" y="138.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">train</text>
+<text x="712.5" y="154.0" text-anchor="middle" font-size="11.5" fill="#475569">checkpoint.pt</text>
+<text x="712.5" y="170.0" text-anchor="middle" font-size="11.5" fill="#475569">triggers.jsonl</text>
+<rect x="810" y="118" width="145" height="64" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/>
+<text x="882.5" y="146.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">evaluate</text>
+<text x="882.5" y="162.0" text-anchor="middle" font-size="11.5" fill="#475569">evaluation.json</text>
+<rect x="980" y="118" width="145" height="64" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.6"/>
+<text x="1052.5" y="146.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">report</text>
+<text x="1052.5" y="162.0" text-anchor="middle" font-size="11.5" fill="#475569">REPORT.md</text>
+<rect x="300" y="270" width="195" height="66" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="397.5" y="299.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">probe-growth</text>
+<text x="397.5" y="315.0" text-anchor="middle" font-size="11.5" fill="#475569">r2 · memory lành phình ra</text>
+<rect x="515" y="270" width="195" height="66" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="612.5" y="299.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">probe-contamination</text>
+<text x="612.5" y="315.0" text-anchor="middle" font-size="11.5" fill="#475569">contam · bản ghi mang trigger</text>
+<rect x="730" y="270" width="195" height="66" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="827.5" y="299.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">probe-writeback</text>
+<text x="827.5" y="315.0" text-anchor="middle" font-size="11.5" fill="#475569">writeback · agent tự ghi lại</text>
+<rect x="945" y="270" width="195" height="66" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="1042.5" y="299.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">probe-universal</text>
+<text x="1042.5" y="315.0" text-anchor="middle" font-size="11.5" fill="#475569">r1 · b2 vs b3: trigger chung?</text>
+<rect x="300" y="352" width="195" height="66" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="397.5" y="381.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">probe-e2e</text>
+<text x="397.5" y="397.0" text-anchor="middle" font-size="11.5" fill="#475569">e2e · LLM hành động → ASR-t</text>
+<rect x="515" y="352" width="195" height="66" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="1.6"/>
+<text x="612.5" y="381.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">probe-position</text>
+<text x="612.5" y="397.0" text-anchor="middle" font-size="11.5" fill="#475569">position · trigger đặt ở đâu</text>
+<rect x="730" y="352" width="410" height="66" rx="8" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.6" stroke-dasharray="5 3"/>
+<text x="935.0" y="373.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">b2/seed_0/probes/&lt;tên&gt;-suffix-test/</text>
+<text x="935.0" y="389.0" text-anchor="middle" font-size="11.5" fill="#475569">probe_config.json · probe_*.jsonl (hàng thô)</text>
+<text x="935.0" y="405.0" text-anchor="middle" font-size="11.5" fill="#475569">probe_*.json (summary + verdict)</text>
+<rect x="300" y="480" width="480" height="70" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.6"/>
+<text x="540.0" y="511.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">outputs/mcat/&lt;RUN_ROOT&gt;/</text>
+<text x="540.0" y="527.0" text-anchor="middle" font-size="11.5" fill="#475569">Kaggle: tải về outputs/kaggle/&lt;kernel&gt;/  (§8)</text>
+<rect x="860" y="480" width="280" height="70" rx="8" fill="#ffe4e6" stroke="#e11d48" stroke-width="1.6"/>
+<text x="1000.0" y="511.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">_idea_q1_aplus/p0_runN_*.md</text>
+<text x="1000.0" y="527.0" text-anchor="middle" font-size="11.5" fill="#475569">kết quả + link từ open_problems.md (§9)</text>
+<polyline points="137,188 137,228" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<text x="152" y="210" text-anchor="middle" font-size="11" font-style="italic" fill="#334155" stroke="#ffffff" stroke-width="4" paint-order="stroke">gọi</text>
+<polyline points="137,298 137,338" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<text x="152" y="320" text-anchor="middle" font-size="11" font-style="italic" fill="#334155" stroke="#ffffff" stroke-width="4" paint-order="stroke">gọi</text>
+<polyline points="250,373 278,373 278,150 300,150" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<polyline points="372,58 372,118" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<polyline points="445,150 470,150" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<polyline points="615,150 640,150" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<polyline points="785,150 810,150" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<polyline points="955,150 980,150" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<polyline points="542,182 542,236" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<text x="640" y="214" text-anchor="middle" font-size="11" font-style="italic" fill="#334155" stroke="#ffffff" stroke-width="4" paint-order="stroke">dùng chung episode + index</text>
+<polyline points="882,182 882,216 1042,216 1042,270" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<text x="962" y="210" text-anchor="middle" font-size="11" font-style="italic" fill="#334155" stroke="#ffffff" stroke-width="4" paint-order="stroke">2 run đã evaluate</text>
+<polyline points="540,436 540,480" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<text x="625" y="461" text-anchor="middle" font-size="11" font-style="italic" fill="#334155" stroke="#ffffff" stroke-width="4" paint-order="stroke">summary JSON + verdict</text>
+<polyline points="780,515 860,515" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<text x="820" y="506" text-anchor="middle" font-size="11" font-style="italic" fill="#334155" stroke="#ffffff" stroke-width="4" paint-order="stroke">đọc số</text>
+<polyline points="137,408 137,515 300,515" fill="none" stroke="#475569" stroke-width="1.6" stroke-linejoin="round" marker-end="url(#arr)"/>
+<text x="215" y="506" text-anchor="middle" font-size="11" font-style="italic" fill="#334155" stroke="#ffffff" stroke-width="4" paint-order="stroke">ghi artifact</text>
+</svg>

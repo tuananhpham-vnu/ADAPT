@@ -7,13 +7,17 @@ the relaxed objective never reaches this file.
 Two controls decide whether conditioning does any work:
 
 ``shuffled-context``  swap one episode's memory summary for another's and keep
-                      the queries. If the metrics do not move, the generator
-                      is ignoring memory and the conditioning claim fails.
+                      the queries. Both triggers are scored on the episode's
+                      own memory; if ASR-r does not drop (paired bootstrap),
+                      the generator is ignoring memory and the conditioning
+                      claim fails -- even when the swap changed the tokens.
 ``permutation``       permute the document order. The output must not move,
                       because the pooling is permutation invariant.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -21,8 +25,8 @@ from typing import Any
 import torch
 from torch import nn
 
-from src.triggers.artifacts import atomic_json, append_jsonl
-from src.triggers.mcat.costs import record
+from src.triggers.artifacts import atomic_json, append_jsonl, stable_hash
+from src.triggers.mcat.costs import record, unmetered
 from src.triggers.mcat.encoding import encode_plain, encode_with_trigger_embeddings
 from src.triggers.mcat.episodes import Episode
 from src.triggers.mcat.objectives import score_matrix
@@ -31,6 +35,10 @@ from src.triggers.mcat.relaxation import export_hard_trigger, round_trip_report
 from src.triggers.mcat.retrievers import Retriever
 from src.triggers.mcat.runtime import EpisodeContext, Workspace
 from src.triggers.mcat.train import TrainConfig, _logits_for
+
+
+#: The k of every hit@k reported beside hit@K (K = the episode's top-k).
+HIT_CURVE = (1, 2, 3, 5)
 
 
 def retrieval_metrics(
@@ -46,10 +54,15 @@ def retrieval_metrics(
     poison_scores = score_matrix(queries, poison_keys, score)
     top_k = min(top_k, clean_keys.shape[0])
 
-    kth_clean = clean_scores.topk(k=top_k, dim=1).values[:, -1]
+    ranked_clean = clean_scores.topk(k=top_k, dim=1).values
+    kth_clean = ranked_clean[:, -1]
     best_poison = poison_scores.max(dim=1).values
     margin = best_poison - kth_clean
     hit = (margin > 0).float()
+    # hit@k for every k up to K: a poison record is among the first k results.
+    # Kept in its own block so ``hit_at_K`` stays the only ``hit_at_`` key.
+    curve = {str(k): float((best_poison > ranked_clean[:, k - 1]).float().mean())
+             for k in HIT_CURVE if k <= top_k}
 
     # Occupancy: how many of the K slots the poison records actually take.
     combined = torch.cat((clean_scores, poison_scores), dim=1)
@@ -64,6 +77,7 @@ def retrieval_metrics(
     ])
     return {
         f"hit_at_{top_k}": float(hit.mean()),
+        "hit_curve": curve,
         f"poison_occupancy_at_{top_k}": float((occupancy / top_k).mean()),
         "mean_margin": float(margin.mean()),
         "p10_margin": float(margin.quantile(0.10)),
@@ -80,6 +94,7 @@ def _poison_keys(
     retriever: Retriever,
     *,
     frozen: torch.Tensor | None = None,
+    position: str = "suffix",
 ) -> torch.Tensor:
     """Poison keys for this snapshot.
 
@@ -103,8 +118,72 @@ def _poison_keys(
     embeds = retriever.model.get_input_embeddings()(trigger_ids)
     return encode_with_trigger_embeddings(
         retriever.model, retriever.tokenizer, context.poison_texts, embeds,
-        device=retriever.device, max_length=retriever.max_length,
+        device=retriever.device, max_length=retriever.max_length, position=position,
     )
+
+
+EVAL_BATCH = 64
+#: (retriever, texts, trigger ids, position) -> (triggered, untriggered).
+_QUERY_CACHE: "OrderedDict[tuple, tuple[torch.Tensor, torch.Tensor]]" = OrderedDict()
+QUERY_CACHE_SIZE = 64
+_CACHE_ON = False
+
+
+@contextmanager
+def cached_queries():
+    """Reuse Q_eval encodings inside this block (memory probes only).
+
+    Off by default: the drift evaluation charges encoder passes to each method,
+    and a cache there would make the later methods look cheaper than they are.
+    A memory probe moves only the memory, so its queries are safe to reuse.
+    """
+    global _CACHE_ON
+    previous, _CACHE_ON = _CACHE_ON, True
+    try:
+        yield
+    finally:
+        _CACHE_ON = previous
+        if not previous:
+            _QUERY_CACHE.clear()
+
+
+def _encoded_queries(retriever, texts, trigger_ids, position):
+    """Q_eval with and without the trigger, encoded once per (trigger, texts).
+
+    A memory probe scores one frozen trigger against hundreds of memories; the
+    queries are the same every time, so encoding them again only burns GPU.
+    The key holds the texts themselves, so a different Q_eval can never hit.
+    """
+    key = (id(retriever.model), stable_hash(texts), tuple(trigger_ids.tolist()), position)
+    if _CACHE_ON and key in _QUERY_CACHE:
+        _QUERY_CACHE.move_to_end(key)
+        return _QUERY_CACHE[key]
+    embeds = retriever.model.get_input_embeddings()(trigger_ids)
+    # Chunked: a whole-split evaluation (~1000 queries at 512 tokens) in one
+    # batch needs ~12 GB of attention scores per layer and cannot fit a T4.
+    triggered = _in_chunks(texts, lambda chunk: encode_with_trigger_embeddings(
+        retriever.model, retriever.tokenizer, chunk, embeds,
+        device=retriever.device, max_length=retriever.max_length,
+        position=position,
+    ))
+    # Trigger off: the poison records are already written, but the query
+    # carries no trigger.  Anything retrieved here is a false activation.
+    untriggered = _in_chunks(texts, lambda chunk: encode_plain(
+        retriever.model, retriever.tokenizer, chunk,
+        device=retriever.device, max_length=retriever.max_length,
+    ))
+    if not _CACHE_ON:
+        return triggered, untriggered
+    _QUERY_CACHE[key] = (triggered, untriggered)
+    while len(_QUERY_CACHE) > QUERY_CACHE_SIZE:
+        _QUERY_CACHE.popitem(last=False)
+    return triggered, untriggered
+
+
+def _in_chunks(texts: list[str], encode, size: int = EVAL_BATCH) -> torch.Tensor:
+    """Encode ``texts`` ``size`` at a time; rows come back in the input order."""
+    return torch.cat([encode(texts[start:start + size])
+                      for start in range(0, len(texts), size)], dim=0)
 
 
 def evaluate_trigger(
@@ -114,8 +193,14 @@ def evaluate_trigger(
     *,
     score: str = "dot",
     frozen_poison: torch.Tensor | None = None,
+    position: str = "suffix",
 ) -> dict[str, Any]:
-    """Score one frozen trigger on this episode's locked evaluation queries."""
+    """Score one frozen trigger on this episode's locked evaluation queries.
+
+    ``position`` must be the position the trigger was optimized at.  Every row
+    carries it, so a mismatch shows up in the artifact instead of silently
+    halving a score.
+    """
     retriever = workspace.retriever
     texts = workspace.eval_texts(context.episode)
     ids = trigger["round_trip"]["re_encoded_ids"] or trigger["token_ids"]
@@ -123,18 +208,9 @@ def evaluate_trigger(
     top_k = context.episode.retrieval_top_k
 
     with torch.no_grad():
-        poison = _poison_keys(context, trigger_ids, retriever, frozen=frozen_poison)
-        embeds = retriever.model.get_input_embeddings()(trigger_ids)
-        triggered = encode_with_trigger_embeddings(
-            retriever.model, retriever.tokenizer, texts, embeds,
-            device=retriever.device, max_length=retriever.max_length,
-        )
-        # Trigger off: the poison records are already written, but the query
-        # carries no trigger.  Anything retrieved here is a false activation.
-        untriggered = encode_plain(
-            retriever.model, retriever.tokenizer, texts,
-            device=retriever.device, max_length=retriever.max_length,
-        )
+        poison = _poison_keys(context, trigger_ids, retriever, frozen=frozen_poison,
+                              position=position)
+        triggered, untriggered = _encoded_queries(retriever, texts, trigger_ids, position)
         on = retrieval_metrics(triggered, context.clean_keys, poison,
                                top_k=top_k, score=score)
         off = retrieval_metrics(untriggered, context.clean_keys, poison,
@@ -145,6 +221,7 @@ def evaluate_trigger(
         "domain": context.episode.domain,
         "split": context.episode.split,
         "poison_source": "frozen" if frozen_poison is not None else "refreshed",
+        "trigger_position": position,
         "trigger": trigger["trigger"],
         "round_trip_valid": bool(trigger["round_trip"]["valid"]),
         "trigger_on": on,
@@ -174,17 +251,62 @@ def generate_trigger(
     return trigger
 
 
+def _hit_key(row: dict[str, Any]) -> str:
+    return next(key for key in row["trigger_on"] if key.startswith("hit_at_"))
+
+
+def _metric_effect(rows: list[dict[str, Any]], *, seed: int = 0) -> dict[str, Any]:
+    """Paired ASR-r drop from the swap, bootstrapped over episodes.
+
+    ``drop = own - swapped``: positive means the trigger generated from the
+    episode's own memory retrieves the poison better *on that memory* than the
+    one generated from another snapshot -- the generator used memory to some
+    effect.  A changed trigger with no drop is still an inert memory branch.
+    """
+    from src.triggers.mcat.stats import paired_bootstrap
+
+    groups = [row["episode_id"] for row in rows]
+    effect: dict[str, Any] = {}
+    for metric in ("on_hit", "mean_margin"):
+        own = [row["own"][metric] for row in rows]
+        swapped = [row["swapped_score"][metric] for row in rows]
+        effect[metric] = {"own": _mean(own), "swapped": _mean(swapped),
+                          "drop": paired_bootstrap(own, swapped, groups, seed=seed)}
+    hit = effect["on_hit"]["drop"]
+    if hit.get("ci_low") is None:
+        verdict = "inconclusive"
+    elif hit["ci_low"] > 0:
+        verdict = "memory-used"
+    elif hit["ci_high"] < 0:
+        verdict = "swap-helps"
+    else:
+        verdict = "memory-inert"
+    effect["verdict"] = verdict
+    return effect
+
+
 def shuffled_context_control(
     modules: list[nn.Module],
     config: TrainConfig,
     contexts: list[EpisodeContext],
     retriever: Retriever,
+    *,
+    workspace: Workspace | None = None,
+    score: str = "dot",
+    frozen_poison: FrozenPoison | None = None,
 ) -> dict[str, Any]:
     """Rotate memory summaries between episodes, holding queries fixed.
 
     Identical triggers before and after the swap mean the memory branch is
     inert -- the finding that would sink the conditioning claim, so it is
     reported as a number rather than left to inspection.
+
+    A changed trigger is not enough, though: if the swapped trigger retrieves
+    the poison just as well, memory changed the tokens and nothing else.  With
+    a ``workspace`` both triggers are scored on the episode's **own** memory and
+    evaluation queries, and ``metric_effect`` reports the paired ASR-r drop with
+    an episode-level bootstrap.  That drop, not ``change_rate``, is the evidence
+    for the conditioning claim.
 
     Swaps stay **within a domain**.  Handing a StrategyQA episode an EhrAgent
     snapshot is a distribution shift a generator could notice without having
@@ -193,6 +315,18 @@ def shuffled_context_control(
     """
     if config.mode != "generator":
         return {"applicable": False, "reason": "needs a generator"}
+
+    def scored(context: EpisodeContext, trigger: dict[str, Any]) -> dict[str, float]:
+        frozen = (None if frozen_poison is None
+                  else frozen_poison.keys_for(context.episode.episode_id))
+        # A diagnostic, not attacker work: refresh-mode poison writes here must
+        # not reach the evaluate ledger the break-even numbers are read from.
+        with unmetered():
+            row = evaluate_trigger(workspace, context, trigger, score=score,
+                                   frozen_poison=frozen,
+                                   position=config.trigger_position)
+        on = row["trigger_on"]
+        return {"on_hit": on[_hit_key(row)], "mean_margin": on["mean_margin"]}
 
     by_domain: dict[str, list[int]] = {}
     for index, context in enumerate(contexts):
@@ -213,19 +347,32 @@ def shuffled_context_control(
                                        memory_override=other.memory_vectors)
             differs = original["token_ids"] != swapped["token_ids"]
             changed += int(differs)
-            rows.append({"episode_id": context.episode.episode_id, "domain": name,
-                         "swapped_with": other.episode.episode_id,
-                         "original": original["trigger"], "swapped": swapped["trigger"],
-                         "changed": differs})
+            row = {"episode_id": context.episode.episode_id, "domain": name,
+                   "swapped_with": other.episode.episode_id,
+                   "original": original["trigger"], "swapped": swapped["trigger"],
+                   "changed": differs}
+            if workspace is not None:
+                # Both scored on THIS episode's memory and queries: the swap
+                # changes only which snapshot the generator was shown.
+                row["own"] = scored(context, original)
+                row["swapped_score"] = (row["own"] if not differs
+                                        else scored(context, swapped))
+            rows.append(row)
         per_domain[name] = {"episodes": len(group), "changed": changed,
                             "change_rate": changed / len(group)}
 
     episodes = sum(entry["episodes"] for entry in per_domain.values())
     changed = sum(entry["changed"] for entry in per_domain.values())
     skipped = sorted(set(by_domain) - set(usable))
-    return {"applicable": True, "episodes": episodes, "changed": changed,
-            "change_rate": changed / episodes, "per_domain": per_domain,
-            "skipped_domains": skipped, "rows": rows}
+    result = {"applicable": True, "episodes": episodes, "changed": changed,
+              "change_rate": changed / episodes, "per_domain": per_domain,
+              "skipped_domains": skipped, "rows": rows}
+    if workspace is not None:
+        result["metric_effect"] = _metric_effect(rows)
+    else:
+        result["metric_effect"] = {"verdict": "not-scored",
+                                   "reason": "no workspace: only token change measured"}
+    return result
 
 
 def permutation_control(
@@ -276,23 +423,31 @@ def evaluate(
         frozen = (None if frozen_poison is None
                   else frozen_poison.keys_for(context.episode.episode_id))
         row = evaluate_trigger(workspace, context, trigger, score=score,
-                               frozen_poison=frozen)
+                               frozen_poison=frozen,
+                               position=config.trigger_position)
         append_jsonl(output_dir / "evaluation.jsonl", row)
         rows.append(row)
 
-    keys = [key for key in rows[0]["trigger_on"] if key != "queries"] if rows else []
+    # Scalars only: ``hit_curve`` is a block of its own, averaged per k below.
+    keys = ([key for key, value in rows[0]["trigger_on"].items()
+             if key != "queries" and not isinstance(value, dict)] if rows else [])
     summary: dict[str, Any] = {
         "mode": config.mode, "variant": config.variant, "score": score,
+        "trigger_position": config.trigger_position,
         "poison_source": "frozen" if frozen_poison is not None else "refreshed",
         "episodes": len(rows),
         "trigger_on": {key: _mean(row["trigger_on"][key] for row in rows) for key in keys},
         "trigger_off": {key: _mean(row["trigger_off"][key] for row in rows) for key in keys},
+        "hit_curve": {k: _mean(row["trigger_on"]["hit_curve"][k] for row in rows)
+                      for k in (rows[0]["trigger_on"].get("hit_curve") or {} if rows else {})},
         "false_activation": _mean(row["false_activation"] for row in rows),
         "round_trip_valid_rate": _mean(float(row["round_trip_valid"]) for row in rows),
     }
     if controls:
         summary["controls"] = {
-            "shuffled_context": shuffled_context_control(modules, config, contexts, retriever),
+            "shuffled_context": shuffled_context_control(
+                modules, config, contexts, retriever, workspace=workspace, score=score,
+                frozen_poison=frozen_poison),
             "permutation": permutation_control(modules, config, contexts, retriever),
         }
     atomic_json(output_dir / "evaluation.json", {"config": asdict(config)} | summary)

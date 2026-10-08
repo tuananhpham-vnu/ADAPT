@@ -1,4 +1,4 @@
-"""Training loops for the direct-logit baselines and the generator.
+"""Training loops for the baselines and the generator.
 
 Three modes share one optimization step and differ only in where the ``[L, V]``
 logits come from:
@@ -7,9 +7,13 @@ logits come from:
 ``universal-logit``  B3 -- one logits matrix fitted across all train episodes.
 ``generator``        M1/B4/B5/B6 -- logits produced from the episode's context.
 
-Comparing them is the whole point: B2 measures what the optimizer alone buys,
-B3 whether one universal trigger already suffices, and only the gap above both
-can be attributed to conditioning.
+A fourth, ``hotflip`` (B1), is AgentPoison's discrete search per episode.  It
+minimizes the same ``losses_for`` objective but replaces the relaxed gradient
+step with ``hotflip.hotflip_step``; see that module for why it lives here.
+
+Comparing them is the whole point: B1/B2 measure what per-episode search buys,
+B3 whether one universal trigger already suffices, and only the gap above all
+three can be attributed to conditioning.
 """
 from __future__ import annotations
 
@@ -25,9 +29,10 @@ from src.triggers.artifacts import (
     seed_everything, stable_hash,
 )
 from src.triggers.mcat.costs import record as charge
-from src.triggers.mcat.encoding import encode_with_trigger_embeddings
+from src.triggers.mcat.encoding import POSITIONS, encode_with_trigger_embeddings
 from src.triggers.mcat.episodes import Episode
 from src.triggers.mcat.generator import TriggerGenerator, sample_memory_keys
+from src.triggers.mcat.hotflip import DEFAULT_CANDIDATES, HotFlipTrigger, hotflip_step
 from src.triggers.mcat.objectives import (
     PoisonPolicy, compute_compactness_loss, compute_hit_at_k_margin_loss,
     compute_uniqueness_loss, mcat_total_loss,
@@ -39,7 +44,10 @@ from src.triggers.mcat.relaxation import (
 from src.triggers.mcat.retrievers import Retriever
 from src.triggers.mcat.runtime import EpisodeContext, Workspace
 
-MODES = ("direct-logit", "universal-logit", "generator")
+MODES = ("direct-logit", "universal-logit", "generator", "hotflip")
+#: Modes that own one trigger per episode and transfer nothing: evaluation and
+#: drift must let them search again on the episodes they are scored on.
+PER_EPISODE_MODES = ("direct-logit", "hotflip")
 
 
 @dataclass(frozen=True)
@@ -60,10 +68,26 @@ class TrainConfig:
     attention_pool: bool = False
     memory_summary_keys: int = 128
     seed: int = 0
+    #: Where the trigger sits inside the query (P1).  Part of the config, so it
+    #: reaches ``config_hash`` and a checkpoint optimized at one position can
+    #: never be resumed -- or evaluated -- at another.
+    trigger_position: str = "suffix"
+    #: B1 only: replacement tokens scored exactly per HotFlip iteration.
+    #: ``build_contract`` leaves it out of the hash for every other mode.
+    hotflip_candidates: int = DEFAULT_CANDIDATES
 
     def __post_init__(self) -> None:
         if self.mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}, got {self.mode!r}")
+        if self.trigger_position not in POSITIONS:
+            raise ValueError(
+                f"trigger_position must be one of {POSITIONS}, got "
+                f"{self.trigger_position!r}"
+            )
+        if self.hotflip_candidates < 1:
+            raise ValueError(
+                f"hotflip_candidates must be positive, got {self.hotflip_candidates}"
+            )
 
 
 def temperature(config: TrainConfig, step: int, total: int | None = None) -> float:
@@ -91,11 +115,16 @@ def losses_for(
     query = encode_with_trigger_embeddings(
         retriever.model, retriever.tokenizer, context.optimization_texts, trigger_embeds,
         device=retriever.device, max_length=retriever.max_length,
+        position=config.trigger_position,
     )
     poison_source = trigger_embeds if policy.refresh else trigger_embeds.detach()
+    # The attacker writes its records the same way it rewrites its queries; a
+    # poison key encoded at another position would be ranked by a key the
+    # deployed index never holds.
     poison = encode_with_trigger_embeddings(
         retriever.model, retriever.tokenizer, context.poison_texts, poison_source,
         device=retriever.device, max_length=retriever.max_length,
+        position=config.trigger_position,
     )
     poison = policy.apply(poison)
 
@@ -119,6 +148,10 @@ def _logits_source(
             trigger_tokens=episode.trigger_tokens, context_dim=config.context_dim,
             hidden=config.hidden, variant=config.variant,
             attention_pool=config.attention_pool,
+        ).to(retriever.device)
+    if config.mode == "hotflip":
+        return HotFlipTrigger(
+            episode.trigger_tokens, retriever.vocab_size, retriever.vocab_mask,
         ).to(retriever.device)
     return TriggerLogits(episode.trigger_tokens, retriever.vocab_size).to(retriever.device)
 
@@ -222,9 +255,9 @@ def train(
         raise ValueError(
             f"got {len(contexts)} contexts for {len(episodes)} episodes"
         )
-    if config.mode == "direct-logit":
-        # B2 owns one independent logits matrix per episode; nothing is shared,
-        # which is exactly what makes it a per-episode search baseline.
+    if config.mode in PER_EPISODE_MODES:
+        # B1/B2 own one independent trigger per episode; nothing is shared,
+        # which is exactly what makes them per-episode search baselines.
         modules = [_logits_source(config, retriever, episode) for episode in episodes]
     else:
         shared = _logits_source(config, retriever, episodes[0])
@@ -241,7 +274,9 @@ def train(
     parameters = list(dict.fromkeys(
         parameter for module in modules for parameter in module.parameters()
     ))
-    optimizer = torch.optim.Adam(parameters, lr=config.learning_rate)
+    # HotFlip holds token ids in buffers and has no parameter to hand Adam.
+    optimizer = (torch.optim.Adam(parameters, lr=config.learning_rate)
+                 if parameters else None)
 
     checkpoint_path = output_dir / "checkpoint.pt"
     start, history = 0, []
@@ -255,11 +290,25 @@ def train(
             )
         for module, state in zip(modules, checkpoint["modules"]):
             module.load_state_dict(state)
-        optimizer.load_state_dict(checkpoint["optimizer"])
+        if optimizer is not None:
+            optimizer.load_state_dict(checkpoint["optimizer"])
         start, history = checkpoint["next_step"], checkpoint["history"]
         restore_rng(checkpoint["rng"])
 
     for step in range(start, total_steps):
+        if config.mode == "hotflip":
+            record = _hotflip_iteration(step, modules, contexts, retriever, config)
+            append_jsonl(output_dir / "metrics.jsonl", record)
+            history.append(record)
+            if on_step is not None:
+                on_step(step, record)
+            atomic_torch(checkpoint_path, {
+                "schema_version": 1, "contract": contract,
+                "modules": [module.state_dict() for module in modules],
+                "optimizer": None, "next_step": step + 1,
+                "history": history, "rng": rng_state(),
+            })
+            continue
         tau = temperature(config, step, total_steps)
         optimizer.zero_grad(set_to_none=True)
         totals: dict[str, float] = {}
@@ -313,12 +362,41 @@ def train(
     return summary, modules
 
 
+def _hotflip_iteration(
+    step: int, modules: list[nn.Module], contexts: list[EpisodeContext],
+    retriever: Retriever, config: TrainConfig,
+) -> dict[str, Any]:
+    """One HotFlip iteration on every episode, logged like a gradient step.
+
+    Loss terms are averaged over episodes as in the gradient loop; ``accepted``
+    is the fraction of episodes whose trigger changed, which is the search's
+    only sign of progress once it has converged.
+    """
+    totals: dict[str, float] = {}
+    accepted = 0
+    for module, context in zip(modules, contexts):
+        result = hotflip_step(module, context, retriever, config, losses=losses_for)
+        accepted += int(result["accepted"])
+        for key in ("l_uni", "l_cpt", "l_ret", "l_total", "grad_norm", "candidate_loss"):
+            totals[key] = totals.get(key, 0.0) + result[key] / len(contexts)
+    # One discrete update per episode -- the HotFlip counterpart of an Adam step.
+    charge("optimizer_steps", 1)
+    return {"step": step, "tau": None, "accept_rate": accepted / len(contexts)} | totals
+
+
 def build_contract(
     config: TrainConfig, manifest: dict[str, Any], retriever: Retriever
 ) -> dict[str, Any]:
-    """What a resume must match: configuration, episode split and encoder."""
+    """What a resume must match: configuration, episode split and encoder.
+
+    ``hotflip_candidates`` only enters the hash under ``--mode hotflip``, so
+    adding the field did not invalidate checkpoints of the other modes.
+    """
+    fields = asdict(config)
+    if config.mode != "hotflip":
+        fields.pop("hotflip_candidates")
     return {
-        "config_hash": stable_hash(asdict(config)),
+        "config_hash": stable_hash(fields),
         "split_hash": manifest["split_hash"],
         "retriever": stable_hash(retriever.fingerprint()),
     }

@@ -15,7 +15,9 @@ import unittest
 import torch
 
 from src.triggers.losses import compute_retrieval_margin_loss
-from src.triggers.mcat.domains import AD_MISSING, load_domain
+from src.triggers.mcat.domains import (
+    AD_CORPUS, AD_MISSING, AD_QUERIES, AgentDriverDomain, load_domain,
+)
 from src.triggers.mcat.encoding import (
     encode_with_trigger_embeddings, freeze_retriever, trigger_embeddings_from_ids,
 )
@@ -118,12 +120,40 @@ class EpisodeTests(unittest.TestCase):
 
 class DomainTests(unittest.TestCase):
     def test_agentdriver_reports_the_missing_corpus(self):
-        domain = load_domain("ad")
-        with self.assertRaises(FileNotFoundError) as caught:
-            domain.documents()
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "agentdriver/data/finetune/data_samples_train.json"
+            domain = AgentDriverDomain("ad", missing, missing.with_name("data_samples_val.json"))
+            with self.assertRaises(FileNotFoundError) as caught:
+                domain.documents()
         self.assertIn("data_samples_train.json", str(caught.exception))
-        self.assertIn("agentdriver/data/finetune", str(caught.exception))
+        self.assertIn("agentdriver/data/finetune", str(caught.exception).replace("\\", "/"))
         self.assertIn("split.json", AD_MISSING)
+
+    @unittest.skipUnless(AD_CORPUS.exists() and AD_QUERIES.exists(),
+                         "AgentDriver data is not downloaded")
+    def test_agentdriver_keys_match_agentpoison_and_hide_the_answer(self):
+        domain = load_domain("ad")
+        documents, queries = domain.documents(), domain.queries()
+        self.assertGreater(len(documents), 20000)
+        self.assertGreater(len(queries), 4000)
+        for row in documents[:200] + queries[:200]:
+            text = row.get("text", row.get("question"))
+            self.assertIn("Ego States", text)
+            self.assertIn("Perception Results", text)
+            self.assertNotIn("Planned Trajectory", text)
+            self.assertNotIn("Driving Plan", text)
+        # Scene blocks, not frames: consecutive frames are near duplicates.
+        self.assertLess(len({row["family"] for row in documents}), len(documents) // 10)
+        doc_families = {row["family"] for row in documents}
+        self.assertFalse(doc_families & {row["family"] for row in queries})
+
+    @unittest.skipUnless(AD_CORPUS.exists() and AD_QUERIES.exists(),
+                         "AgentDriver data is not downloaded")
+    def test_agentdriver_manifest_has_no_family_leak(self):
+        episodes, manifest = build_manifest(["ad"], seed=0, sizes=SMALL, per_split=2)
+        self.assertEqual(len(episodes), 6)
+        self.assertIn("query_sha256", manifest["domains"]["ad"])
+        assert_no_family_leak(episodes, load_domain("ad"))
 
     @unittest.skipUnless((ROOT / "ReAct/database/strategyqa_train_paragraphs.json").exists(),
                          "StrategyQA corpus is not vendored")

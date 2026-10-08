@@ -33,12 +33,20 @@ from src.triggers.mcat.domains import DOMAIN_NAMES
 from src.triggers.mcat.episodes import (
     Episode, EpisodeSizes, build_manifest, family_key,
 )
-from src.triggers.mcat.evaluate import evaluate
+from src.triggers.mcat.evaluate import cached_queries, evaluate
 from src.triggers.mcat.generator import parameter_count
+from src.triggers.mcat.encoding import POSITIONS
 from src.triggers.mcat.poison import FROZEN_POISON_FILE, FrozenPoison
+from src.triggers.mcat.probes import (
+    GROWTH_ROWS, GROWTH_SUMMARY, POSITION_ROWS, POSITION_SUMMARY, PROBE_GROWTH,
+    PROBE_SEEDS, R1_SUMMARY, GrowthProbeConfig, PositionProbeConfig, attention_mass,
+    compare_runs, growth_probe, position_probe, summarize_growth, summarize_position,
+)
 from src.triggers.mcat.retrievers import build_fixture_retriever, load_dpr, DEFAULT_RETRIEVER
 from src.triggers.mcat.runtime import Workspace
-from src.triggers.mcat.train import TrainConfig, build_contract, train, _logits_source
+from src.triggers.mcat.train import (
+    MODES, PER_EPISODE_MODES, TrainConfig, build_contract, train, _logits_source,
+)
 
 DEFAULT_OUTPUT = ROOT / "outputs/mcat"
 
@@ -51,7 +59,8 @@ def _train_config(args: argparse.Namespace) -> TrainConfig:
         poison_mode=args.poison_mode, grad_clip=args.grad_clip,
         context_dim=args.context_dim, hidden=args.hidden,
         attention_pool=args.attention_pool, memory_summary_keys=args.memory_summary_keys,
-        seed=args.seed,
+        seed=args.seed, trigger_position=args.trigger_position,
+        hotflip_candidates=args.hotflip_candidates,
     )
 
 
@@ -71,6 +80,7 @@ def _workspace(args: argparse.Namespace) -> Workspace:
         retriever=_retriever(args), cache_dir=cache_dir,
         fixture=args.fixture, batch_size=args.index_batch_size,
         memory_summary_keys=args.memory_summary_keys, corpus_limit=args.corpus_limit,
+        base_search_dir=getattr(args, "base_search_dir", None),
     )
 
 
@@ -189,9 +199,9 @@ def evaluate_stage(args: argparse.Namespace) -> Path:
     if not target:
         raise ValueError(f"no episodes in split {args.split!r}")
 
-    if config.mode == "direct-logit":
-        # B2 has nothing to transfer: its logits belong to the episodes it was
-        # fitted on.  The fair protocol is to let it optimize on the evaluation
+    if config.mode in PER_EPISODE_MODES:
+        # B1/B2 have nothing to transfer: their triggers belong to the episodes
+        # they were fitted on.  The fair protocol is to let it optimize on the evaluation
         # episodes too, paying that online cost, and report it under
         # adapt-<split>/ so the extra compute is never lost from the comparison.
         adapt_dir = Path(args.output_dir) / f"adapt-{args.split}"
@@ -348,7 +358,7 @@ def adapt_stage(args: argparse.Namespace) -> Path:
         if checkpoint["contract"] != expected:
             raise ValueError(
                 "adaptation refused: the checkpoint was trained under another contract")
-    elif config.mode != "direct-logit":
+    elif config.mode not in PER_EPISODE_MODES:
         raise FileNotFoundError("stage train is required: checkpoint.pt is missing")
 
     target = [episode for episode in episodes if episode.split == args.split]
@@ -422,6 +432,402 @@ def evaluate_drift_stage(args: argparse.Namespace) -> Path:
     return drift_dir / DRIFT_SUMMARY
 
 
+def _as_written(value: Any) -> Any:
+    """``value`` as it will read back from JSON.
+
+    A probe contract holds tuples (growth levels, drift seeds, positions), and
+    JSON has only arrays -- so comparing a fresh contract against the stored one
+    compared a tuple with a list and refused every resume.  Round-tripping both
+    sides is the comparison that means what it says.
+    """
+    return json.loads(json.dumps(value, ensure_ascii=False, sort_keys=True))
+
+
+def _probe_contract(
+    args: argparse.Namespace, manifest: dict[str, Any], workspace: Workspace,
+    *, probe: str, config: Any,
+) -> dict[str, Any]:
+    """What a probe resume must match: the run contract plus the probe's own setup."""
+    return _as_written(
+        build_contract(_train_config(args), manifest, workspace.retriever) | {
+            "split": args.split, "probe": probe, "probe_config": asdict(config),
+        }
+    )
+
+
+def _lock_probe_config(path: Path, contract: dict[str, Any]) -> None:
+    """Pin a probe directory to one configuration, or refuse to add to it."""
+    if path.exists() and _as_written(read_json(path)) != contract:
+        raise ValueError(
+            f"probe refused: {path.parent} holds rows from another probe "
+            "configuration; use a new --output-dir, or change --split / "
+            "--trigger-position so this arm gets its own directory"
+        )
+    atomic_json(path, contract)
+
+
+def _probe_dir(args: argparse.Namespace, name: str) -> Path:
+    """One probe's own directory, keyed by the split and the trigger position.
+
+    Two positions are two experiments, so their rows must not land in one file:
+    a mean over a mixed file would average placements the paper reports apart.
+    """
+    return (Path(args.output_dir) / "probes"
+            / f"{name}-{args.trigger_position}-{args.split}")
+
+
+def _probe_checkpoint(args: argparse.Namespace, manifest, workspace):
+    """The run's checkpoint, or ``None`` for the modes that do not need one."""
+    import torch
+
+    path = Path(args.output_dir) / "checkpoint.pt"
+    config = _train_config(args)
+    if not path.exists():
+        if config.mode not in PER_EPISODE_MODES:
+            raise FileNotFoundError(
+                "stage train is required: checkpoint.pt is missing. Only --mode "
+                f"{'/'.join(PER_EPISODE_MODES)} can probe without one, because they "
+                "search per episode"
+            )
+        return None
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    expected = build_contract(config, manifest, workspace.retriever)
+    if checkpoint["contract"] != expected:
+        raise ValueError(
+            "probe refused: the checkpoint was trained under another contract "
+            "(config, split or encoder changed). Re-run train, or point --output-dir "
+            "at the run that produced it"
+        )
+    return checkpoint
+
+
+def probe_growth(args: argparse.Namespace) -> Path:
+    """P0-R2: hold the trigger and poison fixed, grow the memory, measure decay."""
+    output_dir = Path(args.output_dir)
+    episodes, manifest = _load_episodes(output_dir)
+    workspace = _workspace(args)
+    config = _train_config(args)
+    checkpoint = _probe_checkpoint(args, manifest, workspace)
+    probe = GrowthProbeConfig(
+        growth=tuple(args.growth), seeds=tuple(args.drift_seed),
+        min_base_hit=args.min_base_hit, score=args.score,
+        selection=args.growth_selection,
+    )
+    target = [episode for episode in episodes if episode.split == args.split]
+    if not target:
+        raise ValueError(f"no episodes in split {args.split!r}")
+
+    # random keeps its old directory name so finished runs still resume there.
+    name = "growth" if probe.selection == "random" else f"growth_{probe.selection}"
+    directory = _probe_dir(args, name)
+    directory.mkdir(parents=True, exist_ok=True)
+    contract = _probe_contract(args, manifest, workspace, probe="growth", config=probe)
+    _lock_probe_config(directory / "probe_config.json", contract)
+
+    ledger = CostLedger(device=str(workspace.retriever.device))
+    with ledger.active(), cached_queries():
+        growth_probe(
+            workspace, target, config, probe, checkpoint=checkpoint,
+            output_dir=directory, contract=contract,
+            ratios=tuple(manifest["ratios"]), split_seed=manifest["seed"],
+            ledger=ledger, resume=args.resume,
+        )
+    # Summarized from the file, not from the rows this process produced, so a
+    # resumed run reports the whole probe rather than the part it recomputed.
+    summary = summarize_growth(load_rows(directory / GROWTH_ROWS),
+                               iterations=args.bootstrap_iterations, seed=args.seed,
+                               selection=probe.selection)
+    summary["directory"] = str(directory)
+    atomic_json(directory / GROWTH_SUMMARY, summary)
+    atomic_json(directory / "costs.json", ledger.to_json())
+    atomic_json(output_dir / "stages/probe-growth.json",
+                {"state": "completed", "split": args.split,
+                 "verdict": summary["verdict"], "directory": str(directory)})
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return directory / GROWTH_SUMMARY
+
+
+def probe_contamination(args: argparse.Namespace) -> Path:
+    """P0-R2: trigger-carrying records (own logged interactions / rival poison) join memory."""
+    from src.triggers.mcat.contamination import (
+        CONTAMINATION_ROWS, CONTAMINATION_SUMMARY, DEFAULT_LEVELS, ContaminationConfig,
+        contamination_probe,
+    )
+
+    output_dir = Path(args.output_dir)
+    episodes, manifest = _load_episodes(output_dir)
+    workspace = _workspace(args)
+    config = _train_config(args)
+    checkpoint = _probe_checkpoint(args, manifest, workspace)
+    levels = tuple(args.contamination_level or DEFAULT_LEVELS[args.scenario])
+    probe = ContaminationConfig(scenario=args.scenario, levels=levels,
+                                seeds=tuple(args.drift_seed), score=args.score)
+    target = [episode for episode in episodes if episode.split == args.split]
+    if not target:
+        raise ValueError(f"no episodes in split {args.split!r}")
+
+    directory = _probe_dir(args, f"contam_{args.scenario}")
+    directory.mkdir(parents=True, exist_ok=True)
+    contract = _probe_contract(args, manifest, workspace, probe="contamination",
+                               config=probe)
+    _lock_probe_config(directory / "probe_config.json", contract)
+
+    ledger = CostLedger(device=str(workspace.retriever.device))
+    with ledger.active(), cached_queries():
+        contamination_probe(
+            workspace, target, config, probe, checkpoint=checkpoint,
+            output_dir=directory, contract=contract,
+            ratios=tuple(manifest["ratios"]), split_seed=manifest["seed"],
+            ledger=ledger, resume=args.resume,
+        )
+    scope = {
+        "self": "Holds for the agent logging its own triggered interactions into "
+                "memory (records carrying this attacker's trigger, labelled benign)",
+        "rival": "Holds for the frozen poison of independently optimized attackers "
+                 "on the same domain and split",
+    }[args.scenario]
+    summary = summarize_growth(load_rows(directory / CONTAMINATION_ROWS),
+                               iterations=args.bootstrap_iterations, seed=args.seed,
+                               scope_note=scope)
+    summary.pop("selection", None)
+    summary["scenario"] = args.scenario
+    summary["level_unit"] = ("records added" if args.scenario == "self"
+                             else "rival attackers added (each with its own poison records)")
+    summary["directory"] = str(directory)
+    atomic_json(directory / CONTAMINATION_SUMMARY, summary)
+    atomic_json(directory / "costs.json", ledger.to_json())
+    atomic_json(output_dir / f"stages/probe-contamination-{args.scenario}.json",
+                {"state": "completed", "split": args.split,
+                 "verdict": summary["verdict"], "directory": str(directory)})
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return directory / CONTAMINATION_SUMMARY
+
+
+def probe_writeback(args: argparse.Namespace) -> Path:
+    """P0 run 5: the agent logs its triggered interactions under a write policy."""
+    from src.triggers.mcat.writeback import (
+        DEFAULT_LEVELS, POLICIES, WRITEBACK_ROWS, WRITEBACK_SUMMARY, WritebackConfig,
+        summarize_writeback, writeback_probe,
+    )
+
+    output_dir = Path(args.output_dir)
+    episodes, manifest = _load_episodes(output_dir)
+    workspace = _workspace(args)
+    config = _train_config(args)
+    checkpoint = _probe_checkpoint(args, manifest, workspace)
+    probe = WritebackConfig(
+        policies=tuple(args.memory_write or POLICIES),
+        levels=tuple(args.writeback_level or DEFAULT_LEVELS),
+        seeds=tuple(args.drift_seed), seed_poison=args.seed_poison, score=args.score)
+    target = [episode for episode in episodes if episode.split == args.split]
+    if not target:
+        raise ValueError(f"no episodes in split {args.split!r}")
+
+    # Each seed-poison budget is its own experiment: its own directory.
+    name = "writeback" if args.seed_poison is None else f"writeback_p{args.seed_poison}"
+    directory = _probe_dir(args, name)
+    directory.mkdir(parents=True, exist_ok=True)
+    contract = _probe_contract(args, manifest, workspace, probe="writeback", config=probe)
+    _lock_probe_config(directory / "probe_config.json", contract)
+
+    ledger = CostLedger(device=str(workspace.retriever.device))
+    with ledger.active():
+        writeback_probe(
+            workspace, target, config, probe, checkpoint=checkpoint,
+            output_dir=directory, contract=contract,
+            ratios=tuple(manifest["ratios"]), split_seed=manifest["seed"],
+            ledger=ledger, resume=args.resume,
+        )
+    summary = summarize_writeback(load_rows(directory / WRITEBACK_ROWS),
+                                  iterations=args.bootstrap_iterations, seed=args.seed)
+    summary["directory"] = str(directory)
+    atomic_json(directory / WRITEBACK_SUMMARY, summary)
+    atomic_json(directory / "costs.json", ledger.to_json())
+    atomic_json(output_dir / f"stages/probe-{name}.json",
+                {"state": "completed", "split": args.split, "directory": str(directory),
+                 "verdicts": {policy: block["verdict"]["direction"]
+                              for policy, block in summary.get("policies", {}).items()}})
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return directory / WRITEBACK_SUMMARY
+
+
+def probe_e2e(args: argparse.Namespace) -> Path:
+    """P0 run 7: the agent reads its top-k, acts on it, and writes back (end to end)."""
+    import os
+    import time
+
+    from src.triggers.mcat.agent_ad import Contents
+    from src.triggers.mcat.e2e import (
+        E2E_ROWS, E2E_STREAM, E2E_SUMMARY, WRITE_POLICIES, DeadlineReached, E2EConfig,
+        e2e_probe, summarize_e2e,
+    )
+    from src.triggers.mcat.llm import CachedChat, LLMConfig
+
+    output_dir = Path(args.output_dir)
+    episodes, manifest = _load_episodes(output_dir)
+    workspace = _workspace(args)
+    config = _train_config(args)
+    checkpoint = _probe_checkpoint(args, manifest, workspace)
+    llm = LLMConfig(backend=args.llm_backend, model=args.llm_model,
+                    max_new_tokens=args.llm_max_new_tokens, batch_size=args.llm_batch_size,
+                    max_input_tokens=args.llm_max_input_tokens,
+                    max_memory=args.llm_max_memory)
+    # Batch size and GPU placement change speed, not answers: out of the contract.
+    llm_fields = {key: value for key, value in asdict(llm).items()
+                  if key not in ("batch_size", "max_memory")}
+    probe = E2EConfig(
+        scenario=args.e2e_scenario, queries=args.e2e_queries,
+        self_levels=tuple(args.e2e_self_level), rival_levels=tuple(args.e2e_rival_level),
+        policies=tuple(policy for policy in (args.memory_write or WRITE_POLICIES)
+                       if policy != "none"),
+        stream=args.e2e_stream,
+        eval_levels=tuple(args.writeback_level or (args.e2e_stream,)),
+        seeds=tuple(args.e2e_seed), seed_poison=args.seed_poison, score=args.score,
+        llm=llm_fields)
+    target = [episode for episode in episodes if episode.split == args.split]
+    if not target:
+        raise ValueError(f"no episodes in split {args.split!r}")
+    domains = {episode.domain for episode in target}
+    if len(domains) != 1:
+        raise ValueError(f"probe-e2e runs one agent at a time, got domains {sorted(domains)}")
+    domain = domains.pop()
+
+    name = f"e2e_{args.e2e_scenario}" + ("" if args.seed_poison is None
+                                         else f"_p{args.seed_poison}")
+    directory = _probe_dir(args, name)
+    directory.mkdir(parents=True, exist_ok=True)
+    contract = _probe_contract(args, manifest, workspace, probe="e2e", config=probe)
+    _lock_probe_config(directory / "probe_config.json", contract)
+
+    if domain == "ad":
+        source = workspace.domain("ad")
+        contents = Contents.agentdriver(source.corpus_path, source.query_path,
+                                        documents=workspace.documents("ad"),
+                                        queries=workspace.queries("ad"))
+    else:
+        # Only AgentDriver has an agent here; other domains exercise the plumbing.
+        contents = Contents.synthetic(documents=workspace.documents(domain),
+                                      queries=workspace.queries(domain))
+    cache = Path(args.llm_cache) if args.llm_cache else output_dir / "llm_cache.jsonl"
+    chat = CachedChat(llm, cache, token=os.environ.get("HF_TOKEN"))
+    deadline = time.time() + 60 * args.deadline_minutes if args.deadline_minutes else None
+
+    state = "completed"
+    ledger = CostLedger(device=str(workspace.retriever.device))
+    try:
+        with ledger.active():
+            e2e_probe(
+                workspace, target, config, probe, chat=chat, contents=contents,
+                checkpoint=checkpoint, output_dir=directory, contract=contract,
+                ratios=tuple(manifest["ratios"]), split_seed=manifest["seed"],
+                ledger=ledger, deadline=deadline,
+            )
+    except DeadlineReached as error:
+        # Rows hold whole states only; the summary says which ones are missing.
+        state = "partial"
+        print(f"!! {error}; summarizing the states that finished", flush=True)
+    summary = summarize_e2e(load_rows(directory / E2E_ROWS), load_rows(directory / E2E_STREAM),
+                            iterations=args.bootstrap_iterations, seed=args.seed)
+    summary.update({"state": state, "scenario": args.e2e_scenario, "directory": str(directory),
+                    "llm": asdict(llm), "llm_new_answers": chat.calls,
+                    "llm_oom_splits": chat.oom_splits,
+                    "llm_cache": str(cache)})
+    atomic_json(directory / E2E_SUMMARY, summary)
+    atomic_json(directory / "costs.json", ledger.to_json())
+    atomic_json(output_dir / f"stages/probe-{name}.json",
+                {"state": state, "split": args.split, "directory": str(directory)})
+    print(json.dumps({key: summary.get(key) for key in ("state", "gates", "writeback")},
+                     ensure_ascii=False, indent=2, default=str))
+    return directory / E2E_SUMMARY
+
+
+def probe_position(args: argparse.Namespace) -> Path:
+    """P1: score the trigger at the head, the tail, the middle and both ends."""
+    output_dir = Path(args.output_dir)
+    episodes, manifest = _load_episodes(output_dir)
+    workspace = _workspace(args)
+    config = _train_config(args)
+    checkpoint = _probe_checkpoint(args, manifest, workspace)
+    probe = PositionProbeConfig(
+        positions=tuple(args.position or ("suffix", "prefix", "both", "middle")),
+        mode=args.position_mode, score=args.score,
+    )
+    target = [episode for episode in episodes if episode.split == args.split]
+    if not target:
+        raise ValueError(f"no episodes in split {args.split!r}")
+
+    directory = _probe_dir(args, f"position-{probe.mode}")
+    directory.mkdir(parents=True, exist_ok=True)
+    contract = _probe_contract(args, manifest, workspace, probe="position", config=probe)
+    _lock_probe_config(directory / "probe_config.json", contract)
+
+    ledger = CostLedger(device=str(workspace.retriever.device))
+    with ledger.active():
+        rows = position_probe(
+            workspace, target, config, probe, checkpoint=checkpoint,
+            output_dir=directory, contract=contract, ledger=ledger, resume=args.resume,
+        )
+    summary = summarize_position(load_rows(directory / POSITION_ROWS),
+                                 baseline=args.position_baseline,
+                                 iterations=args.bootstrap_iterations, seed=args.seed)
+    if args.attention:
+        import torch
+
+        # Mechanistic evidence for the placement claim, measured on Q_sup only:
+        # Q_eval stays locked, and an attention share does not need it.
+        by_qid = {row["qid"]: row["question"]
+                  for row in workspace.queries(target[0].domain)}
+        texts = [by_qid[qid] for qid in target[0].support_qids[:args.attention_queries]]
+        attention = {}
+        for position in probe.positions:
+            ids = _trigger_ids_of(directory, position)
+            if not ids:
+                attention[position] = {"supported": False, "position": position,
+                                       "reason": "no scored trigger for this position"}
+                continue
+            attention[position] = attention_mass(
+                workspace, texts, torch.tensor(ids, dtype=torch.long),
+                position=position,
+            )
+        summary["attention"] = attention
+    summary["directory"] = str(directory)
+    atomic_json(directory / POSITION_SUMMARY, summary)
+    atomic_json(directory / "costs.json", ledger.to_json())
+    atomic_json(output_dir / "stages/probe-position.json",
+                {"state": "completed", "split": args.split,
+                 "best_length_matched": summary.get("best_length_matched"),
+                 "directory": str(directory)})
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return directory / POSITION_SUMMARY
+
+
+def _trigger_ids_of(directory: Path, position: str) -> list[int]:
+    """Token ids of the first trigger scored at ``position``, from the rows on disk."""
+    for row in load_rows(directory / POSITION_ROWS):
+        if row.get("position") == position and row.get("applicable"):
+            return list(row.get("token_ids") or [])
+    return []
+
+
+def probe_universal(args: argparse.Namespace) -> Path:
+    """P0-R1: pair this run's evaluation against a universal-logit run's."""
+    if not args.control_dir:
+        raise ValueError(
+            "--control-dir is required: it is the directory of the B3 "
+            "universal-logit run this one is paired against"
+        )
+    summary = compare_runs(
+        Path(args.output_dir), Path(args.control_dir), metric=args.probe_metric,
+        iterations=args.bootstrap_iterations, seed=args.seed,
+    )
+    path = Path(args.output_dir) / R1_SUMMARY
+    atomic_json(path, summary)
+    atomic_json(Path(args.output_dir) / "stages/probe-universal.json",
+                {"state": "completed", "verdict": summary["verdict"]})
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return path
+
+
 def report(args: argparse.Namespace) -> Path:
     output_dir = Path(args.output_dir)
     manifest = read_json(output_dir / "manifest.json")
@@ -454,6 +860,20 @@ def report(args: argparse.Namespace) -> Path:
             "  A low rate means the memory branch is inert and the conditioning "
             "claim is not supported.",
         ]
+        effect = shuffled.get("metric_effect", {})
+        if "on_hit" in effect:
+            drop = effect["on_hit"]["drop"]
+            lines.append(
+                f"- ASR-r on the episode's own memory: own {effect['on_hit']['own']:.4f} "
+                f"vs swapped {effect['on_hit']['swapped']:.4f}, drop "
+                f"{_format(drop['mean_difference'])} "
+                f"[{_format(drop['ci_low'])}, {_format(drop['ci_high'])}] "
+                f"-> **{effect['verdict']}**"
+            )
+            lines.append(
+                "  This, not the change rate, is the evidence: a changed trigger "
+                "with no ASR-r drop is still an inert memory branch."
+            )
         for name, entry in sorted(shuffled.get("per_domain", {}).items()):
             lines.append(
                 f"  - {name}: {entry['changed']}/{entry['episodes']} "
@@ -594,14 +1014,21 @@ def add_common(parser: argparse.ArgumentParser) -> None:
     retriever.add_argument("--max-length", type=int, default=512)
     retriever.add_argument("--index-batch-size", type=int, default=32)
     retriever.add_argument("--hf-token", default=None)
+    retriever.add_argument("--base-search-dir", type=Path, default=None,
+                           help="probes: share the per-episode s0 searches here, so "
+                                "every probe on one run pays for them once")
     retriever.add_argument("--cache-dir", type=Path, default=None,
                            help="shared clean-vector cache; defaults to "
                                 "<output-dir>/cache. Point several arms at one "
                                 "directory to encode the corpus only once")
 
     training = parser.add_argument_group("training")
-    training.add_argument("--mode", choices=("direct-logit", "universal-logit", "generator"),
-                          default="generator")
+    training.add_argument("--mode", choices=MODES, default="generator",
+                          help="hotflip is B1, AgentPoison's discrete search per "
+                               "episode; --steps then counts HotFlip iterations")
+    training.add_argument("--hotflip-candidates", type=int, default=100,
+                          help="hotflip: replacements scored exactly per iteration "
+                               "(upstream --num-cand)")
     training.add_argument("--variant", default="memory+query",
                           choices=("memory+query", "query", "memory", "none"))
     training.add_argument("--steps", type=int, default=200)
@@ -617,6 +1044,10 @@ def add_common(parser: argparse.ArgumentParser) -> None:
     training.add_argument("--hidden", type=int, default=256)
     training.add_argument("--attention-pool", action="store_true")
     training.add_argument("--memory-summary-keys", type=int, default=128)
+    training.add_argument("--trigger-position", choices=POSITIONS, default="suffix",
+                          help="where the trigger sits inside the query (P1). Part of "
+                               "the config hash, so changing it invalidates a "
+                               "checkpoint instead of silently rescoring it")
 
     evaluation = parser.add_argument_group("evaluation")
     evaluation.add_argument("--split", choices=("train", "validation", "test"),
@@ -644,6 +1075,86 @@ def add_common(parser: argparse.ArgumentParser) -> None:
                        help="how close two arms must be before a break-even point "
                             "may be quoted as a speedup")
 
+    probes = parser.add_argument_group("probes (P0/P1)")
+    probes.add_argument("--drift-seed", type=int, nargs="+", default=list(PROBE_SEEDS),
+                        help="resamples of the benign documents added at each growth "
+                             "level. One seed is one data split and cannot support a "
+                             "claim; the summary compares the spread across these "
+                             "against the effect of growth")
+    probes.add_argument("--min-base-hit", type=float, default=0.0,
+                        help="skip episodes whose trigger does not reach this hit@K on "
+                             "the undrifted snapshot. Measured before any growth, so "
+                             "it cannot select for decay")
+    probes.add_argument("--growth-selection", default="random",
+                        choices=("random", "support", "triggered", "ood"),
+                        help="probe-growth: which benign documents arrive. random = "
+                             "same-domain resample; support = nearest the clean Q_sup; "
+                             "triggered = nearest Q_sup carrying the trigger (upper "
+                             "bound); ood = random benign documents of the qa domain. "
+                             "support and triggered are deterministic: one --drift-seed")
+    probes.add_argument("--scenario", default="self", choices=("self", "rival"),
+                        help="probe-contamination: self = the agent logs its own "
+                             "triggered interactions; rival = other attackers' poison")
+    probes.add_argument("--contamination-level", type=int, nargs="+", default=None,
+                        help="probe-contamination: counts to add (records for self, "
+                             "attackers for rival); default per scenario")
+    probes.add_argument("--memory-write", action="append", default=None,
+                        choices=("none", "log_outcome", "verified", "corrected"),
+                        help="probe-writeback: how the agent logs a triggered interaction; repeatable, defaults to all four")
+    probes.add_argument("--writeback-level", type=int, nargs="+", default=None,
+                        help="probe-writeback: triggered interactions streamed before "
+                             "each Q_eval score (default 5 10 25 50)")
+    probes.add_argument("--seed-poison", type=int, default=None,
+                        help="probe-writeback: keep only the first N frozen poison "
+                             "records, to lower the base hit off the ceiling")
+    probes.add_argument("--e2e-scenario", choices=("static", "writeback"), default="static",
+                        help="probe-e2e: static = memory states of runs 2-4; writeback = "
+                             "closed loop where the agent's own action decides the write")
+    probes.add_argument("--e2e-queries", type=int, default=32,
+                        help="probe-e2e: the first N queries of each episode's Q_eval")
+    probes.add_argument("--e2e-self-level", type=int, nargs="*", default=[1, 5, 25],
+                        help="probe-e2e static: self records added (empty = skip)")
+    probes.add_argument("--e2e-rival-level", type=int, nargs="*", default=[15],
+                        help="probe-e2e static: rival attackers added (empty = skip)")
+    probes.add_argument("--e2e-stream", type=int, default=50,
+                        help="probe-e2e writeback: triggered interactions streamed")
+    probes.add_argument("--e2e-seed", type=int, nargs="+", default=[0],
+                        help="probe-e2e: draws of the self records / rivals / stream; "
+                             "seed s is the draw of runs 4-5 with the same seed")
+    probes.add_argument("--llm-backend", choices=("hf", "vllm", "fixture"), default="hf")
+    probes.add_argument("--llm-model", default="NousResearch/Meta-Llama-3-8B-Instruct",
+                        help="ungated mirror of meta-llama/Meta-Llama-3-8B-Instruct")
+    probes.add_argument("--llm-batch-size", type=int, default=8)
+    probes.add_argument("--llm-max-new-tokens", type=int, default=320)
+    probes.add_argument("--llm-max-input-tokens", type=int, default=6144)
+    probes.add_argument("--llm-max-memory", default="",
+                        help="per-GPU weight caps for the hf backend, e.g. 0=7GiB,1=12GiB; "
+                             "leave room on the GPU that also holds the retriever")
+    probes.add_argument("--llm-cache", type=Path, default=None,
+                        help="answer cache (JSONL); defaults to <output-dir>/llm_cache.jsonl, "
+                             "shared by every probe-e2e directory of the run")
+    probes.add_argument("--deadline-minutes", type=float, default=None,
+                        help="probe-e2e: stop starting new states after this long and "
+                             "summarize what finished")
+    probes.add_argument("--position", action="append", choices=POSITIONS, default=None,
+                        help="repeatable; defaults to suffix/prefix/both/middle")
+    probes.add_argument("--position-mode", choices=("transfer", "reoptimize"),
+                        default="transfer",
+                        help="transfer scores one trigger at every placement; "
+                             "reoptimize fits a trigger per placement. Different "
+                             "questions -- do not report them as one number")
+    probes.add_argument("--position-baseline", choices=POSITIONS, default="suffix",
+                        help="the placement every other one is paired against")
+    probes.add_argument("--attention", action="store_true",
+                        help="also measure the share of [CLS] attention the trigger "
+                             "receives at each placement")
+    probes.add_argument("--attention-queries", type=int, default=8,
+                        help="how many Q_sup queries the attention share averages over")
+    probes.add_argument("--control-dir", type=Path, default=None,
+                        help="probe-universal: the B3 universal-logit run directory")
+    probes.add_argument("--probe-metric", default="on_hit",
+                        help="probe-universal: on_hit, off_hit, or any trigger_on key")
+
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="python -m src.triggers.mcat", description=__doc__)
@@ -652,6 +1163,9 @@ def parser() -> argparse.ArgumentParser:
         ("prepare-episodes", prepare_episodes), ("index", index), ("train", train_stage),
         ("evaluate", evaluate_stage), ("prepare-drift", prepare_drift),
         ("adapt", adapt_stage), ("evaluate-drift", evaluate_drift_stage),
+        ("probe-growth", probe_growth), ("probe-position", probe_position),
+        ("probe-universal", probe_universal), ("probe-contamination", probe_contamination),
+        ("probe-writeback", probe_writeback), ("probe-e2e", probe_e2e),
         ("report", report), ("smoke", smoke),
     ):
         stage = subparsers.add_parser(name, help=handler.__doc__)

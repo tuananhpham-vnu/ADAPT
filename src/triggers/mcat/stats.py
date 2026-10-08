@@ -84,7 +84,72 @@ def paired_bootstrap(
     return {"mean_difference": observed, "ci_low": float(low), "ci_high": float(high),
             "observations": int(len(differences)), "groups": len(names),
             "iterations": iterations,
-            "significant": bool(low > 0 or high < 0)}
+            "significant": bool(low > 0 or high < 0),
+            "p_value": sign_flip_test(differences, groups, seed=seed)}
+
+
+#: Up to this many groups the sign-flip test enumerates every assignment.
+EXACT_GROUPS = 20
+
+
+def sign_flip_test(
+    differences: Sequence[float],
+    groups: Sequence[str],
+    *,
+    samples: int = 100_000,
+    seed: int = 0,
+) -> float | None:
+    """Two-sided p-value that the paired differences are centred on zero.
+
+    VN — Kiểm định hoán vị đổi dấu, ghép cặp theo nhóm (episode). Giả thuyết
+    không: hai điều kiện hoán đổi được trong từng episode, nên đổi dấu toàn bộ
+    hiệu của một episode không làm thay đổi phân phối. p = tỉ lệ các phép đổi dấu
+    cho |trung bình| ≥ giá trị quan sát. Với ≤ 20 episode thì liệt kê đủ 2^G phép
+    đổi dấu (chính xác, không phụ thuộc seed); nhiều hơn thì lấy mẫu Monte Carlo.
+
+    Under the null the two conditions are exchangeable inside each group, so
+    flipping the sign of every difference of a group leaves the distribution
+    unchanged.  The unit flipped is the group, never the observation, for the
+    reason the module docstring gives.  The observed assignment is one of those
+    counted, so p is never below ``1 / 2**G``.
+    """
+    values = np.asarray(differences, dtype="float64")
+    if len(values) != len(groups):
+        raise ValueError("differences and groups must have equal length")
+    names = sorted(set(groups))
+    if len(names) < 2:
+        return None
+    totals = np.asarray([values[[i for i, g in enumerate(groups) if g == name]].sum()
+                         for name in names])
+    observed = abs(totals.sum()) / len(values)
+    if len(names) <= EXACT_GROUPS:
+        codes = np.arange(2 ** len(names), dtype=np.int64)[:, None]
+        signs = 1 - 2 * ((codes >> np.arange(len(names))) & 1)
+    else:
+        generator = np.random.default_rng(seed)
+        signs = generator.choice((-1, 1), size=(samples, len(names)))
+        signs[0] = 1
+    flipped = np.abs(signs @ totals) / len(values)
+    # A relative tolerance: sums of floats that are equal in exact arithmetic
+    # must count as "at least as extreme".
+    return float(np.mean(flipped >= observed - 1e-12 * max(1.0, observed)))
+
+
+def holm(p_values: dict[str, float | None]) -> dict[str, float | None]:
+    """Holm step-down adjustment over one family of tests (FWER).
+
+    VN — Hiệu chỉnh Holm cho một họ kiểm định: p đã hiệu chỉnh của kiểm định thứ
+    i (xếp tăng dần) là max_{j<=i} min(1, (m-j+1)·p_j). Kiểm định không có p
+    (None) thì không tính vào m.
+    """
+    present = sorted((value, name) for name, value in p_values.items() if value is not None)
+    count = len(present)
+    adjusted: dict[str, float | None] = {name: None for name in p_values}
+    running = 0.0
+    for position, (value, name) in enumerate(present):
+        running = max(running, min(1.0, (count - position) * value))
+        adjusted[name] = running
+    return adjusted
 
 
 def macro_micro_worst(

@@ -25,6 +25,7 @@ from src.triggers.mcat.evaluate import retrieval_metrics, shuffled_context_contr
 from src.triggers.mcat.generator import (
     SetEncoder, TriggerGenerator, parameter_count, sample_memory_keys,
 )
+from src.triggers.mcat.relaxation import straight_through_gumbel
 from src.triggers.mcat.retrievers import build_fixture_retriever, fixture_text
 
 MAX_LENGTH = 32
@@ -119,6 +120,35 @@ class GeneratorTests(unittest.TestCase):
         sampled = sample_memory_keys(self.memory, 5, generator=generator)
         self.assertEqual(sampled.shape[0], 5)
         self.assertIs(sample_memory_keys(self.memory, 999), self.memory)
+
+    def test_initial_logits_are_as_small_as_a_free_logits_matrix(self):
+        # B2/B3 start at 0.01 * randn; raw DPR-scale inputs must not change that.
+        logits = self._generator()(self.memory * 1000.0, self.support * 1000.0)
+        self.assertLess(float(logits.abs().max()), 0.1)
+
+    def test_gradient_survives_adam_like_the_logits_matrix(self):
+        # Regression for the AgentDriver pilot: a plain readout under Adam at
+        # 1e-3 saturated the Gumbel-softmax within 25 steps and the gradient was
+        # exactly zero afterwards.  The generator must stay in the regime B3
+        # trains in: gradient alive and logits still small after 200 steps.
+        torch.manual_seed(0)
+        vocab, dim, steps = 2048, 64, 200
+        generator = TriggerGenerator(embedding_dim=dim, vocab_size=vocab, trigger_tokens=4,
+                                     context_dim=32, hidden=256)
+        memory, support = torch.randn(32, dim) * 20.0 + 3.0, torch.randn(8, dim) * 20.0
+        target = torch.randn(vocab)
+        optimizer = torch.optim.Adam(generator.parameters(), lr=1e-3)
+        for step in range(steps):
+            tau = 2.0 - 1.5 * step / (steps - 1)
+            optimizer.zero_grad()
+            relaxed = straight_through_gumbel(generator(memory, support), tau)
+            (-(relaxed @ target).mean()).backward()
+            norm = torch.nn.utils.clip_grad_norm_(generator.parameters(), 5.0)
+            optimizer.step()
+        self.assertGreater(float(norm), 1e-4)
+        with torch.no_grad():
+            logits = generator(memory, support)
+        self.assertLess(float(logits.max() - logits.min()), 5.0)
 
     def test_set_encoder_rejects_a_non_set_input(self):
         with self.assertRaises(ValueError):
@@ -387,6 +417,51 @@ class ShuffledContextControlTests(unittest.TestCase):
         result = self._run([self._context("qa-0", "qa"), self._context("ehr-0", "ehr")])
         self.assertFalse(result["applicable"])
         self.assertIn("same domain", result["reason"].replace("one domain", "same domain"))
+
+    def _scored(self, contexts):
+        retriever = self.retriever
+
+        class _Workspace:  # evaluate_trigger reads only these two
+            def __init__(self):
+                self.retriever = retriever
+
+            def eval_texts(self, episode):
+                return [fixture_text(10), fixture_text(11), fixture_text(12)]
+
+        return shuffled_context_control(
+            [self.generator] * len(contexts), self.config, contexts, self.retriever,
+            workspace=_Workspace(),
+        )
+
+    def test_without_a_workspace_the_metric_effect_is_marked_unscored(self):
+        result = self._run([self._context("qa-0", "qa"), self._context("qa-1", "qa")])
+        self.assertEqual(result["metric_effect"]["verdict"], "not-scored")
+
+    def test_both_triggers_are_scored_on_the_episodes_own_memory(self):
+        contexts = [self._context(f"qa-{i}", "qa") for i in range(3)]
+        result = self._scored(contexts)
+        effect = result["metric_effect"]
+        self.assertIn(effect["verdict"],
+                      {"memory-used", "memory-inert", "swap-helps", "inconclusive"})
+        for row in result["rows"]:
+            self.assertIn("on_hit", row["own"])
+            if not row["changed"]:
+                # An unchanged trigger is the same trigger: zero drop by construction.
+                self.assertEqual(row["own"], row["swapped_score"])
+        own = [row["own"]["on_hit"] for row in result["rows"]]
+        self.assertAlmostEqual(effect["on_hit"]["own"], sum(own) / len(own))
+        self.assertEqual(effect["on_hit"]["drop"]["groups"], 3)
+
+    def test_a_changed_trigger_with_equal_scores_reads_as_inert(self):
+        from src.triggers.mcat.evaluate import _metric_effect
+
+        rows = [{"episode_id": f"e{i}", "own": {"on_hit": 0.5, "mean_margin": 0.1},
+                 "swapped_score": {"on_hit": 0.5, "mean_margin": 0.1}} for i in range(4)]
+        self.assertEqual(_metric_effect(rows)["verdict"], "memory-inert")
+        for row in rows:
+            row["swapped_score"] = {"on_hit": 0.1, "mean_margin": -0.2}
+        rows[0]["swapped_score"]["on_hit"] = 0.2
+        self.assertEqual(_metric_effect(rows)["verdict"], "memory-used")
 
 
 if __name__ == "__main__":

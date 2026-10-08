@@ -9,8 +9,6 @@ and the unit tests run against.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-import tempfile
 from typing import Any
 
 import torch
@@ -70,6 +68,15 @@ def load_dpr(
     from transformers import AutoTokenizer, DPRContextEncoder
 
     tokenizer = AutoTokenizer.from_pretrained(name, revision=revision, token=token)
+    # transformers 5.0-5.2 load facebook/dpr-* without lowercasing, so every
+    # capitalised word becomes [UNK] and the whole geometry is silently wrong.
+    probe = tokenizer.tokenize("Is Paris the capital?")
+    if tokenizer.unk_token in probe:
+        import transformers
+        raise RuntimeError(
+            f"{type(tokenizer).__name__} (transformers {transformers.__version__}) does "
+            f"not lowercase: 'Is Paris the capital?' -> {probe}. Install transformers>=5.3."
+        )
     model = DPRContextEncoder.from_pretrained(name, revision=revision, token=token).to(device)
     return Retriever(model, tokenizer, name, revision, device, max_length)
 
@@ -79,16 +86,27 @@ def build_fixture_retriever(
     seed: int = 0, device: str = "cpu",
 ) -> Retriever:
     """A deterministic CPU encoder with a real WordPiece tokenizer."""
-    from transformers import BertConfig, BertModel, BertTokenizerFast
+    from tokenizers import Tokenizer, decoders, models, normalizers, pre_tokenizers, processors
+    from transformers import BertConfig, BertModel, PreTrainedTokenizerFast
 
     words = ["[PAD]", "[UNK]", "[CLS]", "[SEP]", "[MASK]"] + [f"w{i}" for i in range(vocabulary)]
-    # BertTokenizerFast reads the vocabulary once at construction, so the file does not
-    # need to outlive this block.  mkdtemp did leave it behind, and every call to this
-    # helper leaked one directory into the system temp.
-    with tempfile.TemporaryDirectory(prefix="mcat-fixture-") as directory:
-        vocabulary_file = Path(directory) / "vocab.txt"
-        vocabulary_file.write_text("\n".join(words) + "\n", encoding="utf-8")
-        tokenizer = BertTokenizerFast(vocab_file=str(vocabulary_file))
+    # Built from a `tokenizers` object rather than BertTokenizerFast(vocab_file=...):
+    # transformers 5.x ignores vocab_file there and yields an empty vocabulary, so
+    # every token became [UNK] and the vocab mask was all False.
+    backend = Tokenizer(models.WordPiece(
+        vocab={word: index for index, word in enumerate(words)}, unk_token="[UNK]",
+    ))
+    backend.normalizer = normalizers.BertNormalizer(lowercase=True)
+    backend.pre_tokenizer = pre_tokenizers.BertPreTokenizer()
+    backend.post_processor = processors.TemplateProcessing(
+        single="[CLS] $A [SEP]", pair="[CLS] $A [SEP] $B:1 [SEP]:1",
+        special_tokens=[("[CLS]", words.index("[CLS]")), ("[SEP]", words.index("[SEP]"))],
+    )
+    backend.decoder = decoders.WordPiece(prefix="##")
+    tokenizer = PreTrainedTokenizerFast(
+        tokenizer_object=backend, unk_token="[UNK]", pad_token="[PAD]",
+        cls_token="[CLS]", sep_token="[SEP]", mask_token="[MASK]",
+    )
     config = BertConfig(vocab_size=len(words), hidden_size=hidden, num_hidden_layers=layers,
                         num_attention_heads=2, intermediate_size=hidden * 2,
                         max_position_embeddings=max(64, max_length * 2))
