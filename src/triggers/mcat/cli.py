@@ -670,9 +670,11 @@ def probe_e2e(args: argparse.Namespace) -> Path:
     checkpoint = _probe_checkpoint(args, manifest, workspace)
     llm = LLMConfig(backend=args.llm_backend, model=args.llm_model,
                     max_new_tokens=args.llm_max_new_tokens, batch_size=args.llm_batch_size,
-                    max_input_tokens=args.llm_max_input_tokens)
-    # Batch size changes speed, not answers: it stays out of the probe contract.
-    llm_fields = {key: value for key, value in asdict(llm).items() if key != "batch_size"}
+                    max_input_tokens=args.llm_max_input_tokens,
+                    max_memory=args.llm_max_memory)
+    # Batch size and GPU placement change speed, not answers: out of the contract.
+    llm_fields = {key: value for key, value in asdict(llm).items()
+                  if key not in ("batch_size", "max_memory")}
     probe = E2EConfig(
         scenario=args.e2e_scenario, queries=args.e2e_queries,
         self_levels=tuple(args.e2e_self_level), rival_levels=tuple(args.e2e_rival_level),
@@ -728,6 +730,7 @@ def probe_e2e(args: argparse.Namespace) -> Path:
                             iterations=args.bootstrap_iterations, seed=args.seed)
     summary.update({"state": state, "scenario": args.e2e_scenario, "directory": str(directory),
                     "llm": asdict(llm), "llm_new_answers": chat.calls,
+                    "llm_oom_splits": chat.oom_splits,
                     "llm_cache": str(cache)})
     atomic_json(directory / E2E_SUMMARY, summary)
     atomic_json(directory / "costs.json", ledger.to_json())
@@ -1124,6 +1127,9 @@ def add_common(parser: argparse.ArgumentParser) -> None:
     probes.add_argument("--llm-batch-size", type=int, default=8)
     probes.add_argument("--llm-max-new-tokens", type=int, default=320)
     probes.add_argument("--llm-max-input-tokens", type=int, default=6144)
+    probes.add_argument("--llm-max-memory", default="",
+                        help="per-GPU weight caps for the hf backend, e.g. 0=7GiB,1=12GiB; "
+                             "leave room on the GPU that also holds the retriever")
     probes.add_argument("--llm-cache", type=Path, default=None,
                         help="answer cache (JSONL); defaults to <output-dir>/llm_cache.jsonl, "
                              "shared by every probe-e2e directory of the run")

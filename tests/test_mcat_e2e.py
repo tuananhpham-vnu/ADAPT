@@ -195,6 +195,47 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(families["base"]["by_rank"]["pooled"]["3"]["asr"], 0.0)
 
 
+class OutOfMemoryError(RuntimeError):
+    """Stands in for torch.OutOfMemoryError, which CachedChat matches by name."""
+
+
+class SmallGpuChat:
+    """Answers batches of at most two prompts, like a GPU that runs out of room."""
+
+    def __init__(self):
+        self.sizes = []
+
+    def generate(self, batch):
+        if len(batch) > 2:
+            raise OutOfMemoryError("CUDA out of memory")
+        self.sizes.append(len(batch))
+        return [f"Driving Plan: STOP {messages[-1]['content']}" for messages in batch]
+
+
+class ChatMemoryTests(unittest.TestCase):
+    def test_out_of_memory_halves_the_batch_and_keeps_every_answer(self):
+        from src.triggers.mcat.llm import CachedChat, LLMConfig
+
+        directory = Path(tempfile.mkdtemp(prefix="mcat-chat-"))
+        self.addCleanup(shutil.rmtree, directory, True)
+        backend = SmallGpuChat()
+        chat = CachedChat(LLMConfig(backend="fixture", batch_size=8),
+                          directory / "cache.jsonl", factory=lambda: backend)
+        batch = [[{"role": "user", "content": f"q{index}"}] for index in range(8)]
+        answers = chat.generate(batch)
+        self.assertEqual(answers, [f"Driving Plan: STOP q{index}" for index in range(8)])
+        self.assertEqual(sorted(backend.sizes), [2, 2, 2, 2])
+        self.assertGreater(chat.oom_splits, 0)
+
+    def test_max_memory_is_parsed_and_kept_out_of_the_cache_key(self):
+        from src.triggers.mcat.llm import LLMConfig
+
+        capped = LLMConfig(max_memory="0=7GiB, 1=12GiB")
+        self.assertEqual(capped.memory_map(), {0: "7GiB", 1: "12GiB"})
+        self.assertIsNone(LLMConfig().memory_map())
+        self.assertEqual(capped.fingerprint(), LLMConfig().fingerprint())
+
+
 class E2EConfigTests(unittest.TestCase):
     def test_eval_level_beyond_the_stream_is_refused(self):
         with self.assertRaisesRegex(ValueError, "exceeds"):

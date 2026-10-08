@@ -38,6 +38,10 @@ class LLMConfig:
     #: Prompt + answer budget.  Five experiences of AgentDriver scenarios are
     #: about 3k tokens; past this the prompt is truncated from the left.
     max_input_tokens: int = 6144
+    #: Per-GPU weight caps for ``device_map="auto"``, e.g. ``"0=7GiB,1=12GiB"``.
+    #: GPU 0 also holds the retriever and the prefill activations, so an even
+    #: split of the 16 GB of fp16 weights leaves it no room (run 7 v1: OOM).
+    max_memory: str = ""
 
     def __post_init__(self) -> None:
         if self.backend not in BACKENDS:
@@ -48,9 +52,20 @@ class LLMConfig:
     def fingerprint(self) -> str:
         # batch_size changes speed, not answers (greedy, left padding): keep it
         # out so a resumed run with another batch size still hits the cache.
+        # max_memory only moves layers between GPUs.
         fields = asdict(self)
-        del fields["batch_size"]
+        del fields["batch_size"], fields["max_memory"]
         return stable_hash(fields)
+
+    def memory_map(self) -> dict | None:
+        """``max_memory`` as ``from_pretrained`` takes it: {0: "7GiB", 1: "12GiB"}."""
+        if not self.max_memory:
+            return None
+        caps = {}
+        for part in self.max_memory.split(","):
+            device, _, cap = part.partition("=")
+            caps[int(device) if device.strip().isdigit() else device.strip()] = cap.strip()
+        return caps
 
 
 class Chat(Protocol):
@@ -138,7 +153,7 @@ def build_chat(config: LLMConfig, *, token: str | None = None) -> Chat:
         return FixtureChat()
     if config.backend == "vllm":
         return VLLMChat(config)
-    return HFChat(config, token=token)
+    return HFChat(config, token=token, max_memory=config.memory_map())
 
 
 class CachedChat:
@@ -157,6 +172,7 @@ class CachedChat:
         self._fingerprint = config.fingerprint()
         self._answers: dict[str, str] = {}
         self.calls = 0
+        self.oom_splits = 0
         if self.path.exists():
             for line in self.path.read_text(encoding="utf-8").splitlines():
                 if line.strip():
@@ -181,7 +197,7 @@ class CachedChat:
             size = self.config.batch_size
             for start in range(0, len(pending), size):
                 chunk = pending[start:start + size]
-                answers = self._chat.generate([messages for _, messages in chunk])
+                answers = self._generate_safely([messages for _, messages in chunk])
                 self.calls += len(chunk)
                 for (key, _), answer in zip(chunk, answers):
                     self._answers[key] = answer
@@ -189,3 +205,25 @@ class CachedChat:
                 if progress is not None:
                     progress(min(start + size, len(pending)), len(pending))
         return [self._answers[key] for key in keys]
+
+    def _generate_safely(self, batch: list[Messages]) -> list[str]:
+        """Generate, halving the batch on CUDA out-of-memory instead of dying.
+
+        A long batch (five long scenarios, eight prompts) can exceed the
+        prefill budget that a short one fits in.  Halving trades speed for the
+        run surviving; greedy answers do not depend on the batch they ran in
+        beyond fp16 rounding.
+        """
+        try:
+            return self._chat.generate(batch)
+        except Exception as error:  # torch.OutOfMemoryError without importing torch here
+            if type(error).__name__ != "OutOfMemoryError" or len(batch) == 1:
+                raise
+            try:
+                import torch
+                torch.cuda.empty_cache()
+            except ImportError:
+                pass
+            self.oom_splits += 1
+            half = len(batch) // 2
+            return self._generate_safely(batch[:half]) + self._generate_safely(batch[half:])

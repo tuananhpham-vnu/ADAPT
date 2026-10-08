@@ -130,6 +130,7 @@ LLM_MODEL="${LLM_MODEL:-NousResearch/Meta-Llama-3-8B-Instruct}"
 LLM_BATCH="${LLM_BATCH:-8}"
 LLM_MAX_NEW="${LLM_MAX_NEW:-320}"
 LLM_CACHE="${LLM_CACHE:-}"
+LLM_MAX_MEMORY="${LLM_MAX_MEMORY:-}"
 DEADLINE_MINUTES="${DEADLINE_MINUTES:-}"
 
 RESUME="${RESUME:-0}"
@@ -352,6 +353,7 @@ probe_e2e () {
   [ -n "$SEED_POISON" ] && extra="$extra --seed-poison $SEED_POISON"
   [ -n "$WRITEBACK_LEVELS" ] && extra="$extra --writeback-level $WRITEBACK_LEVELS"
   [ -n "$LLM_CACHE" ] && extra="$extra --llm-cache $LLM_CACHE"
+  [ -n "$LLM_MAX_MEMORY" ] && extra="$extra --llm-max-memory $LLM_MAX_MEMORY"
   [ -n "$DEADLINE_MINUTES" ] && extra="$extra --deadline-minutes $DEADLINE_MINUTES"
   (
     set -e

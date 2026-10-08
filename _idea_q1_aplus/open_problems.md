@@ -352,6 +352,19 @@ Chính sách ghi khi có LLM thật:
 Lệnh: `bash scripts/run_p0_probes.sh e2e` với `E2E_SCENARIO=static|writeback`, `SEED_POISON=1`
 cho arm 1 poison. Kernel: `.kaggle/mcat-p0-e2e*/`.
 
+> **Trạng thái lần chạy 7 (2026-10-08):** v1 của cả hai kernel (`adapt-mcat-p0-e2e-static`,
+> `adapt-mcat-p0-e2e-writeback`) lỗi **CUDA OOM trên GPU 0** ngay ở batch LLM đầu tiên, sau ≈ 25 phút.
+> Không có số liệu nào (0 câu trả lời). Trước bước LLM mọi thứ đều chạy đúng: dùng lại `base-search`
+> của lần 6 (không tìm lại trigger), encode, đóng băng poison. Nguyên nhân: `device_map="auto"` chia
+> đều 16 GB trọng số, nên GPU 0 (vốn còn giữ DPR) không còn chỗ cho activation lúc prefill.
+> Bản sửa: giới hạn trọng số theo GPU (`--llm-max-memory 0=7GiB,1=12GiB`), và tự chia đôi batch khi
+> OOM (`CachedChat._generate_safely`, có test). **Thiết lập và tiêu chí không đổi.**
+> v2 không đẩy được lên `dainn98s` (hết quota GPU 30 h/tuần). Ngày 2026-10-08 đã đẩy lên tài khoản
+> `tuananh29` (`tuananh29/adapt-mcat-p0-e2e-{writeback,static}`) bằng `.kaggle/mcat-p0-e2e/push.py`.
+> Trigger vẫn là của lần 6: `base-search` được upload thành dataset private
+> `tuananh29/adapt-mcat-p0-base-search`.
+> Artifact v1: `outputs/kaggle/mcat-p0-e2e-{static,writeback}/`.
+
 Toàn bộ luận điểm của MCAT (memory-conditioned trigger + amortization) chỉ tồn
 tại nếu **cả hai** mệnh đề sau đều SAI:
 
