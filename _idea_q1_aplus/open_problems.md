@@ -364,6 +364,27 @@ cho arm 1 poison. Kernel: `.kaggle/mcat-p0-e2e*/`.
 > Trigger vẫn là của lần 6: `base-search` được upload thành dataset private
 > `tuananh29/adapt-mcat-p0-base-search`.
 > Artifact v1: `outputs/kaggle/mcat-p0-e2e-{static,writeback}/`.
+>
+> **v2 (tuananh29, 2026-10-08) cũng lỗi CUDA OOM trên GPU 0**, sau 0.43 h, cả ba step (`static`,
+> `writeback_p1`, `writeback_p5`), **0 câu trả lời** (không có `llm_cache.jsonl`). Chia đôi batch có
+> chạy (8 → 4 → 2 → 1) nhưng **một prompt đơn lẻ** vẫn OOM: SDPA rơi vào kernel `math`, dựng ma trận
+> attention fp32 32 head × 6144 × 6144 = 4.50 GiB (batch 2: 9 GiB, batch 4: 18 GiB — khớp đúng log),
+> trong khi GPU 0 chỉ còn ~2.1 GiB trống. 6144 là `max_input_tokens`, nên prompt dài nhất đã chạm trần
+> cắt trái — tức dài hơn nhiều so với ước tính "~3k token" khi chốt thiết kế.
+> Artifact v2: `outputs/kaggle/mcat-p0-e2e-{wb,static}-tuananh29-20261008-1002/`
+> (`mcat_p0_e2e_summary.json`, `mcat_p0_e2e/e2e_*.console`).
+>
+> **Bản sửa cho v3 (kỹ thuật, tiêu chí không đổi):**
+> - Attention chia khối theo query (`llm.chunked_sdpa_forward`, `attn_implementation`
+>   `mcat_chunked_sdpa`): ma trận điểm mỗi khối ≤ 512 MiB bất kể SDPA chọn kernel nào. Mỗi query vẫn
+>   thấy đủ mọi key, nên kết quả là cùng một attention (test so với SDPA gốc, có và không padding).
+> - Trần prompt 6144 → **7872** token (= context 8192 của Llama 3 − 320 token trả lời). Ở 6144 đã có
+>   prompt bị cắt trái, tức mất Experience 1. Trường này nằm trong `llm` của contract nên contract v3
+>   khác v1/v2, nhưng v1/v2 không có câu trả lời nào nên không có gì phải so.
+> - Độ dài prompt (chưa cắt) được ghi vào từng dòng cache (`prompt_tokens`) và vào summary
+>   (`llm_prompt_tokens`: max, p50, p95, số prompt bị cắt). Nếu còn prompt bị cắt, report phải nêu.
+> - OOM: batch giảm một nửa và **giữ mức nhỏ** cho các batch sau (prompt đi từ dài đến ngắn), thay vì
+>   OOM lại ở mọi batch.
 
 Toàn bộ luận điểm của MCAT (memory-conditioned trigger + amortization) chỉ tồn
 tại nếu **cả hai** mệnh đề sau đều SAI:

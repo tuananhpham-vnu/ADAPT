@@ -226,6 +226,76 @@ class ChatMemoryTests(unittest.TestCase):
         self.assertEqual(answers, [f"Driving Plan: STOP q{index}" for index in range(8)])
         self.assertEqual(sorted(backend.sizes), [2, 2, 2, 2])
         self.assertGreater(chat.oom_splits, 0)
+        # The smaller batch sticks: one failure at 8, one at 4, none after.
+        self.assertEqual(chat.oom_splits, 2)
+        self.assertEqual(chat.batch_limit, 2)
+
+    def test_prompt_lengths_are_logged_and_truncation_counted(self):
+        from src.triggers.mcat.llm import CachedChat, LLMConfig
+
+        class MeasuredChat:
+            input_limit = 3
+
+            def generate(self, batch):
+                self.last_lengths = [len(messages[-1]["content"]) for messages in batch]
+                return ["Driving Plan: STOP"] * len(batch)
+
+        directory = Path(tempfile.mkdtemp(prefix="mcat-chat-"))
+        self.addCleanup(shutil.rmtree, directory, True)
+        chat = CachedChat(LLMConfig(backend="fixture", batch_size=2),
+                          directory / "cache.jsonl", factory=MeasuredChat)
+        chat.generate([[{"role": "user", "content": "x" * size}] for size in (1, 2, 4, 5)])
+        summary = chat.length_summary()
+        self.assertEqual((summary["prompts"], summary["max"], summary["truncated"]), (4, 5, 2))
+        rows = [json.loads(line) for line in (directory / "cache.jsonl").read_text().splitlines()]
+        self.assertEqual(sorted(row["prompt_tokens"] for row in rows), [1, 2, 4, 5])
+
+
+class ChunkedAttentionTests(unittest.TestCase):
+    """The query-blocked attention of the hf backend equals stock SDPA."""
+
+    def generate(self, implementation, prompts):
+        from transformers import LlamaConfig, LlamaForCausalLM
+
+        torch.manual_seed(0)
+        config = LlamaConfig(vocab_size=64, hidden_size=64, intermediate_size=128,
+                             num_hidden_layers=2, num_attention_heads=4,
+                             num_key_value_heads=2, max_position_embeddings=128,
+                             attn_implementation=implementation)
+        model = LlamaForCausalLM(config).eval()
+        width = max(len(prompt) for prompt in prompts)
+        ids = torch.tensor([[0] * (width - len(p)) + p for p in prompts])  # left padding
+        mask = torch.tensor([[0] * (width - len(p)) + [1] * len(p) for p in prompts])
+        with torch.no_grad():
+            logits = model(input_ids=ids, attention_mask=mask).logits
+            out = model.generate(input_ids=ids, attention_mask=mask, max_new_tokens=6,
+                                 do_sample=False, pad_token_id=0)
+        return logits, out
+
+    def test_blocks_match_sdpa_with_and_without_padding(self):
+        try:
+            import transformers  # noqa: F401
+        except ImportError:
+            self.skipTest("transformers not installed")
+        from unittest import mock
+
+        from src.triggers.mcat import llm
+
+        name = llm.register_chunked_attention()
+        cases = {"padded": [list(range(5, 45)), list(range(10, 30))],
+                 "unpadded": [list(range(3, 43))]}
+        for label, prompts in cases.items():
+            with self.subTest(label), mock.patch.object(llm, "BLOCK_SCORE_BYTES", 4 * 2 * 4 * 50 * 7):
+                reference_logits, reference = self.generate("sdpa", prompts)
+                logits, out = self.generate(name, prompts)
+                # Masked (padding) rows are don't-care; compare the real tokens.
+                lengths = [len(p) for p in prompts]
+                width = max(lengths)
+                for row, length in enumerate(lengths):
+                    torch.testing.assert_close(logits[row, width - length:],
+                                               reference_logits[row, width - length:],
+                                               rtol=1e-4, atol=1e-5)
+                self.assertTrue(torch.equal(out, reference))
 
     def test_max_memory_is_parsed_and_kept_out_of_the_cache_key(self):
         from src.triggers.mcat.llm import LLMConfig

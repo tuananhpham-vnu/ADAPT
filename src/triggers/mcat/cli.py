@@ -731,6 +731,7 @@ def probe_e2e(args: argparse.Namespace) -> Path:
     summary.update({"state": state, "scenario": args.e2e_scenario, "directory": str(directory),
                     "llm": asdict(llm), "llm_new_answers": chat.calls,
                     "llm_oom_splits": chat.oom_splits,
+                    "llm_prompt_tokens": chat.length_summary(),
                     "llm_cache": str(cache)})
     atomic_json(directory / E2E_SUMMARY, summary)
     atomic_json(directory / "costs.json", ledger.to_json())
@@ -1126,7 +1127,9 @@ def add_common(parser: argparse.ArgumentParser) -> None:
                         help="ungated mirror of meta-llama/Meta-Llama-3-8B-Instruct")
     probes.add_argument("--llm-batch-size", type=int, default=8)
     probes.add_argument("--llm-max-new-tokens", type=int, default=320)
-    probes.add_argument("--llm-max-input-tokens", type=int, default=6144)
+    probes.add_argument("--llm-max-input-tokens", type=int, default=7872,
+                        help="prompt budget, truncated from the left past it; "
+                             "Llama 3 context 8192 minus the answer")
     probes.add_argument("--llm-max-memory", default="",
                         help="per-GPU weight caps for the hf backend, e.g. 0=7GiB,1=12GiB; "
                              "leave room on the GPU that also holds the retriever")
