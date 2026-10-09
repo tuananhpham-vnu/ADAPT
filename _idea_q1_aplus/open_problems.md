@@ -364,6 +364,64 @@ cho arm 1 poison. Kernel: `.kaggle/mcat-p0-e2e*/`.
 > Trigger vẫn là của lần 6: `base-search` được upload thành dataset private
 > `tuananh29/adapt-mcat-p0-base-search`.
 > Artifact v1: `outputs/kaggle/mcat-p0-e2e-{static,writeback}/`.
+>
+> **v2 (tuananh29, 2026-10-08) cũng lỗi CUDA OOM trên GPU 0**, sau 0.43 h, cả ba step (`static`,
+> `writeback_p1`, `writeback_p5`), **0 câu trả lời** (không có `llm_cache.jsonl`). Chia đôi batch có
+> chạy (8 → 4 → 2 → 1) nhưng **một prompt đơn lẻ** vẫn OOM: SDPA rơi vào kernel `math`, dựng ma trận
+> attention fp32 32 head × 6144 × 6144 = 4.50 GiB (batch 2: 9 GiB, batch 4: 18 GiB — khớp đúng log),
+> trong khi GPU 0 chỉ còn ~2.1 GiB trống. 6144 là `max_input_tokens`, nên prompt dài nhất đã chạm trần
+> cắt trái — tức dài hơn nhiều so với ước tính "~3k token" khi chốt thiết kế.
+> Artifact v2: `outputs/kaggle/mcat-p0-e2e-{wb,static}-tuananh29-20261008-1002/`
+> (`mcat_p0_e2e_summary.json`, `mcat_p0_e2e/e2e_*.console`).
+>
+> **Bản sửa cho v3 (kỹ thuật, tiêu chí không đổi):**
+> - Attention chia khối theo query (`llm.chunked_sdpa_forward`, `attn_implementation`
+>   `mcat_chunked_sdpa`): ma trận điểm mỗi khối ≤ 512 MiB bất kể SDPA chọn kernel nào. Mỗi query vẫn
+>   thấy đủ mọi key, nên kết quả là cùng một attention (test so với SDPA gốc, có và không padding).
+> - Trần prompt 6144 → **7872** token (= context 8192 của Llama 3 − 320 token trả lời). Ở 6144 đã có
+>   prompt bị cắt trái, tức mất Experience 1. Trường này nằm trong `llm` của contract nên contract v3
+>   khác v1/v2, nhưng v1/v2 không có câu trả lời nào nên không có gì phải so.
+> - Độ dài prompt (chưa cắt) được ghi vào từng dòng cache (`prompt_tokens`) và vào summary
+>   (`llm_prompt_tokens`: max, p50, p95, số prompt bị cắt). Nếu còn prompt bị cắt, report phải nêu.
+> - OOM: batch giảm một nửa và **giữ mức nhỏ** cho các batch sau (prompt đi từ dài đến ngắn), thay vì
+>   OOM lại ở mọi batch.
+>
+> **v3 (tuananh29, 2026-10-08 23:02 → 09-10 ~10:30): chạy được nhưng CHƯA XONG, và cổng parse TRƯỢT.**
+> - Hết OOM (batch tụt 8 → 2 ở những prompt dài nhất rồi giữ 2). Tốc độ ≈ 13 s/câu trả lời, chậm gấp
+>   ~5 lần ước tính 2.5 s.
+> - `static`: kernel bị Kaggle huỷ (`CANCEL_ACKNOWLEDGED`), không có summary. Có 6/7 trạng thái đủ 16
+>   episode (thiếu `rival-15`), 3 199 câu trả lời trong cache.
+> - `writeback`: `writeback_p1` dừng ở deadline (`partial`): chỉ xong `base`, `base_off`; stream được
+>   42/50 bước. `writeback_p5` bị bỏ qua. 2 998 câu trả lời trong cache.
+> - Trigger trùng lần 6 ở cả 16 episode (`trigger_check`).
+> - Prompt bị cắt: 21/2 998 (0.7%) ở writeback; dài nhất 10 110 token (> context 8192).
+> - **Parse rate `base_off` = 0.826 < 0.95 (cổng trượt)**; `control` 0.801; `base` 0.955. Nguyên nhân:
+>   câu trả lời bị cắt ở `max_new_tokens = 320` khi model liệt kê nhiều vật thể, trước khi tới dòng
+>   `Driving Plan`. Theo luật đã chốt: sửa, chạy lại, báo cả hai lần.
+> - Số sơ bộ (tính lại tại chỗ bằng `summarize_e2e` trên 6 trạng thái đã xong; **chưa phải kết quả**):
+>   file `outputs/kaggle/mcat-p0-e2e-static-tuananh29-20261008-2302/.../probe_e2e.local_summary.json`.
+>   Report sơ bộ: [p0_run7_e2e_results.md](p0_run7_e2e_results.md).
+>
+> **Phân loại câu không parse được (v3, static, 512 câu/trạng thái)** — `base_off`: 45 bị cắt ở 320
+> token, 35 **chép nguyên khung `Output:` rỗng** của system prompt, 2 lỗi parser
+> (`*****Driving Plan:*****` rồi plan ở dòng sau), 7 khác; `control`: 29 / 49 / 0 / 24. Chỉ nâng ngân
+> sách token thì `base_off` lên ≈ 0.92, vẫn trượt cổng.
+>
+> **Sửa cho v4 (2026-10-09; parser/prompt, như luật đã chốt cho phép; báo cả v3 và v4):**
+> - Parser: nếu dòng sau `Driving Plan:` rỗng sau chuẩn hoá (ví dụ `*****`), lấy dòng kế tiếp.
+> - `max_new_tokens` 320 → **640**; trần prompt 7872 → **7552** (8192 − 640).
+> - **Hỏi lại một lần** câu không có plan: thêm lượt `REASK` ("Your answer has no driving plan. Reply
+>   with one line ..."). Chỉ nhận plan bắt đầu bằng meta action của task, nên câu tán gẫu không làm
+>   tăng parse rate. Mỗi trạng thái báo thêm `reasked` (= 1 − parse rate lượt đầu); cổng 0.95 đọc
+>   trên parse rate sau khi hỏi lại, kèm parse rate lượt đầu.
+> - Dùng lại câu trả lời v3 (`--llm-reuse 320:7872`): chỉ những câu **tự dừng** (< 312 token) trên
+>   prompt **không bị cắt** ở cả hai trần (≤ 7552). Greedy với ngân sách lớn hơn cho cùng đầu câu,
+>   nên đó đúng là câu trả lời v4 sẽ sinh. 266/5 652 câu v3 bị cắt ở 320 và 50 prompt > 7552 được
+>   sinh lại.
+> - Chia batch theo token (≤ 18 000 token prompt + trả lời mỗi batch) thay vì giữ batch 2 cho mọi
+>   prompt sau lần OOM đầu.
+> - Tách writeback thành 2 kernel (p1, p5). Đẩy 2026-10-09: `anhtxk/adapt-mcat-p0-e2e-writeback-p{1,5}`,
+>   `tuananhpham29/adapt-mcat-p0-e2e-static`, cache gộp ở dataset `<user>/adapt-mcat-p0-e2e-cache`.
 
 Toàn bộ luận điểm của MCAT (memory-conditioned trigger + amortization) chỉ tồn
 tại nếu **cả hai** mệnh đề sau đều SAI:

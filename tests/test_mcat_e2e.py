@@ -226,6 +226,230 @@ class ChatMemoryTests(unittest.TestCase):
         self.assertEqual(answers, [f"Driving Plan: STOP q{index}" for index in range(8)])
         self.assertEqual(sorted(backend.sizes), [2, 2, 2, 2])
         self.assertGreater(chat.oom_splits, 0)
+        # The smaller batch sticks: one failure at 8, one at 4, none after.
+        self.assertEqual(chat.oom_splits, 2)
+        self.assertEqual(chat.batch_limit, 2)
+
+    def test_prompt_lengths_are_logged_and_truncation_counted(self):
+        from src.triggers.mcat.llm import CachedChat, LLMConfig
+
+        class MeasuredChat:
+            input_limit = 3
+
+            def generate(self, batch):
+                self.last_lengths = [len(messages[-1]["content"]) for messages in batch]
+                return ["Driving Plan: STOP"] * len(batch)
+
+        directory = Path(tempfile.mkdtemp(prefix="mcat-chat-"))
+        self.addCleanup(shutil.rmtree, directory, True)
+        chat = CachedChat(LLMConfig(backend="fixture", batch_size=2),
+                          directory / "cache.jsonl", factory=MeasuredChat)
+        chat.generate([[{"role": "user", "content": "x" * size}] for size in (1, 2, 4, 5)])
+        summary = chat.length_summary()
+        self.assertEqual((summary["prompts"], summary["max"], summary["truncated"]), (4, 5, 2))
+        rows = [json.loads(line) for line in (directory / "cache.jsonl").read_text().splitlines()]
+        self.assertEqual(sorted(row["prompt_tokens"] for row in rows), [1, 2, 4, 5])
+
+
+class RecordingChat:
+    """Answers 'Driving Plan: STOP <content>' and records every batch it ran."""
+
+    def __init__(self):
+        self.batches = []
+
+    def generate(self, batch):
+        self.batches.append([messages[-1]["content"] for messages in batch])
+        self.last_lengths = [len(messages[-1]["content"]) for messages in batch]
+        self.last_stopped = [True] * len(batch)
+        return [f"Driving Plan: STOP {messages[-1]['content']}" for messages in batch]
+
+
+TEMPLATE = ("Thoughts:\n - Notable Objects:\n   Potential Effects:\n"
+            " - Notable Objects:\n   Potential Effects:\nDriving Plan:")
+
+
+class TemplateChat:
+    """Copies the empty output template, then answers ``follow_up`` when re-asked."""
+
+    def __init__(self, follow_up):
+        self.follow_up = follow_up
+        self.reasks = 0
+
+    def generate(self, batch):
+        from src.triggers.mcat.agent_ad import REASK
+
+        answers = []
+        for messages in batch:
+            if messages[-1]["content"] == REASK:
+                self.reasks += 1
+                answers.append(self.follow_up)
+            else:
+                answers.append(TEMPLATE)
+        return answers
+
+
+class ReaskTests(unittest.TestCase):
+    def test_a_plan_on_the_line_after_a_starred_header_is_parsed(self):
+        answer = "Thoughts: ...\n\n*****Driving Plan:*****\nMOVE FORWARD WITH A DECELERATION"
+        self.assertEqual(parse_plan(answer), "MOVE FORWARD WITH A DECELERATION")
+        self.assertIsNone(parse_plan(TEMPLATE))
+
+    def test_the_reasked_plan_completes_the_answer(self):
+        from src.triggers.mcat.agent_ad import with_reasked_plan
+
+        done = with_reasked_plan(TEMPLATE, "Driving Plan: SUDDEN STOP")
+        self.assertEqual(parse_plan(done), "SUDDEN STOP")
+        self.assertEqual(done.count("Driving Plan"), 1)
+        self.assertEqual(parse_plan(with_reasked_plan(TEMPLATE, "move forward with a deceleration.")),
+                         "MOVE FORWARD WITH A DECELERATION")
+        self.assertIsNone(with_reasked_plan(TEMPLATE, "Sure! What would you like to know?"))
+        self.assertIsNone(with_reasked_plan(TEMPLATE, ""))
+
+    def query_and_records(self):
+        query = AgentQuery("q0", "scene", "MOVE FORWARD WITH A CONSTANT SPEED")
+        return [(query, [Record("d0", "clean", "scene", reasoning("STOP"))])]
+
+    def test_answer_all_reasks_only_the_answers_with_no_plan(self):
+        chat = TemplateChat("Driving Plan: SUDDEN STOP")
+        outcome = answer_all(chat, self.query_and_records())[0]
+        self.assertEqual(chat.reasks, 1)
+        self.assertTrue(outcome["reasked"] and outcome["parsed"] and outcome["target"])
+
+        chat = TemplateChat("I cannot help with that.")
+        outcome = answer_all(chat, self.query_and_records())[0]
+        self.assertTrue(outcome["reasked"])
+        self.assertFalse(outcome["parsed"])
+
+        outcome = answer_all(FixtureChat(), self.query_and_records())[0]
+        self.assertFalse(outcome["reasked"])
+
+
+class ChatBudgetTests(unittest.TestCase):
+    def cache(self):
+        directory = Path(tempfile.mkdtemp(prefix="mcat-chat-"))
+        self.addCleanup(shutil.rmtree, directory, True)
+        return directory / "cache.jsonl"
+
+    def test_answers_that_stopped_under_the_old_budget_are_reused(self):
+        from src.triggers.artifacts import append_jsonl, stable_hash
+        from src.triggers.mcat.llm import CachedChat, LLMConfig
+
+        path = self.cache()
+        old = LLMConfig(backend="fixture", max_new_tokens=40, max_input_tokens=100)
+        prompts = {"short": "a" * 10, "cut": "b" * 10, "long": "c" * 90, "flag": "d" * 10}
+        rows = {  # (answer, prompt tokens, stopped flag or None for a v3 row)
+            "short": ("plan " * 3, 10, None),       # 15 tokens < 40 - 8: stopped
+            "cut": ("x" * 39, 10, None),            # at the old budget: cut
+            "long": ("plan", 90, None),             # truncated under the new budget
+            "flag": ("y" * 39, 10, True),           # long, but logged as stopped
+        }
+        for name, (answer, tokens, stopped) in rows.items():
+            messages = [{"role": "user", "content": prompts[name]}]
+            row = {"key": stable_hash([old.fingerprint(), messages]), "answer": answer,
+                   "prompt_tokens": tokens}
+            if stopped is not None:
+                row["stopped"] = stopped
+            append_jsonl(path, row)
+
+        backend = RecordingChat()
+        new = LLMConfig(backend="fixture", max_new_tokens=80, max_input_tokens=60,
+                        reuse="40:100")
+        chat = CachedChat(new, path, factory=lambda: backend, counter=len)
+        names = list(prompts)
+        answers = chat.generate([[{"role": "user", "content": prompts[n]}] for n in names])
+        got = dict(zip(names, answers))
+        self.assertEqual(got["short"], "plan " * 3)
+        self.assertEqual(got["flag"], "y" * 39)
+        regenerated = sorted(content for batch in backend.batches for content in batch)
+        self.assertEqual(regenerated, sorted([prompts["cut"], prompts["long"]]))
+        self.assertEqual(chat.reused, 2)
+        # A second process reads the reused rows under the new key: nothing to generate.
+        again = RecordingChat()
+        CachedChat(new, path, factory=lambda: again, counter=len).generate(
+            [[{"role": "user", "content": prompts[n]}] for n in names])
+        self.assertEqual(again.batches, [])
+
+    def test_without_reuse_an_old_budget_is_a_different_cache(self):
+        from src.triggers.mcat.llm import LLMConfig
+
+        self.assertNotEqual(LLMConfig(max_new_tokens=320).fingerprint(),
+                            LLMConfig(max_new_tokens=640).fingerprint())
+        # Speed settings stay out of the key.
+        self.assertEqual(LLMConfig().fingerprint(),
+                         LLMConfig(batch_tokens=9000, reuse="320:7872").fingerprint())
+
+    def test_batches_by_tokens_put_short_prompts_together(self):
+        from src.triggers.mcat.llm import CachedChat, LLMConfig
+
+        backend = RecordingChat()
+        config = LLMConfig(backend="fixture", batch_size=8, max_new_tokens=10,
+                           max_input_tokens=1000, batch_tokens=120)
+        chat = CachedChat(config, self.cache(), factory=lambda: backend, counter=len)
+        contents = [f"L{index}" + "L" * 48 for index in range(2)] + [f"s{index}ss" for index in range(9)]
+        chat.generate([[{"role": "user", "content": c}] for c in contents])
+        sizes = [len(batch) for batch in backend.batches]
+        # 120 // (50 + 10) = 2 long prompts; 120 // (5 + 10) = 8 short, then the last one.
+        self.assertEqual(sizes, [2, 8, 1])
+
+    def test_out_of_memory_shrinks_the_token_budget_once(self):
+        from src.triggers.mcat.llm import CachedChat, LLMConfig
+
+        backend = SmallGpuChat()
+        config = LLMConfig(backend="fixture", batch_size=8, max_new_tokens=10,
+                           max_input_tokens=1000, batch_tokens=10_000)
+        chat = CachedChat(config, self.cache(), factory=lambda: backend, counter=len)
+        batch = [[{"role": "user", "content": f"q{index}"}] for index in range(8)]
+        answers = chat.generate(batch)
+        self.assertEqual(answers, [f"Driving Plan: STOP q{index}" for index in range(8)])
+        self.assertEqual(sorted(backend.sizes), [2, 2, 2, 2])
+        self.assertEqual(chat.oom_splits, 2)
+
+
+class ChunkedAttentionTests(unittest.TestCase):
+    """The query-blocked attention of the hf backend equals stock SDPA."""
+
+    def generate(self, implementation, prompts):
+        from transformers import LlamaConfig, LlamaForCausalLM
+
+        torch.manual_seed(0)
+        config = LlamaConfig(vocab_size=64, hidden_size=64, intermediate_size=128,
+                             num_hidden_layers=2, num_attention_heads=4,
+                             num_key_value_heads=2, max_position_embeddings=128,
+                             attn_implementation=implementation)
+        model = LlamaForCausalLM(config).eval()
+        width = max(len(prompt) for prompt in prompts)
+        ids = torch.tensor([[0] * (width - len(p)) + p for p in prompts])  # left padding
+        mask = torch.tensor([[0] * (width - len(p)) + [1] * len(p) for p in prompts])
+        with torch.no_grad():
+            logits = model(input_ids=ids, attention_mask=mask).logits
+            out = model.generate(input_ids=ids, attention_mask=mask, max_new_tokens=6,
+                                 do_sample=False, pad_token_id=0)
+        return logits, out
+
+    def test_blocks_match_sdpa_with_and_without_padding(self):
+        try:
+            import transformers  # noqa: F401
+        except ImportError:
+            self.skipTest("transformers not installed")
+        from unittest import mock
+
+        from src.triggers.mcat import llm
+
+        name = llm.register_chunked_attention()
+        cases = {"padded": [list(range(5, 45)), list(range(10, 30))],
+                 "unpadded": [list(range(3, 43))]}
+        for label, prompts in cases.items():
+            with self.subTest(label), mock.patch.object(llm, "BLOCK_SCORE_BYTES", 4 * 2 * 4 * 50 * 7):
+                reference_logits, reference = self.generate("sdpa", prompts)
+                logits, out = self.generate(name, prompts)
+                # Masked (padding) rows are don't-care; compare the real tokens.
+                lengths = [len(p) for p in prompts]
+                width = max(lengths)
+                for row, length in enumerate(lengths):
+                    torch.testing.assert_close(logits[row, width - length:],
+                                               reference_logits[row, width - length:],
+                                               rtol=1e-4, atol=1e-5)
+                self.assertTrue(torch.equal(out, reference))
 
     def test_max_memory_is_parsed_and_kept_out_of_the_cache_key(self):
         from src.triggers.mcat.llm import LLMConfig

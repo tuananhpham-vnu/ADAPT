@@ -53,7 +53,8 @@ import torch
 from src.triggers.artifacts import append_jsonl, stable_hash
 from src.triggers.mcat.agent_ad import (
     HIT_CURVE, RIVAL_ACTION, TARGET_ACTION, Contents, Record, build_messages, parse_plan,
-    replace_plan, retrieval_summary, score_answer, stored_answer, with_trigger,
+    reask_messages, replace_plan, retrieval_summary, score_answer, stored_answer,
+    with_reasked_plan, with_trigger,
 )
 from src.triggers.mcat.contamination import self_records
 from src.triggers.mcat.costs import CostLedger
@@ -72,7 +73,7 @@ E2E_ROWS = "probe_e2e.jsonl"
 E2E_STREAM = "probe_e2e_stream.jsonl"
 E2E_SUMMARY = "probe_e2e.json"
 METRICS = ("asr_t", "asr_a", "hit_1", "hit_2", "hit_3", "hit_5", "correct",
-           "meta_correct", "parsed", "rival_action")
+           "meta_correct", "parsed", "reasked", "rival_action")
 #: Pre-registered thresholds (open_problems.md, run 7).
 PRACTICAL = 0.05
 ALPHA = 0.05
@@ -182,20 +183,38 @@ def answer_all(chat, shown: Sequence[tuple[AgentQuery, Sequence[Record]]], *,
     messages = [build_messages(records, query.text) for query, records in shown]
     started = time.time()
     keyed = hasattr(chat, "key")
-    if keyed:
+
+    def generate(batch, what):
+        if not keyed:
+            return chat.generate(batch)
+        step, printed = 8 * max(1, chat.config.batch_size), [0]
+
         def progress(done, total):
-            if done == total or done % (8 * max(1, chat.config.batch_size)) == 0:
-                print(f"    {label}: {done}/{total} new answers "
+            # Batches vary in size, so print on crossing a multiple of ``step``.
+            if done == total or done // step > printed[0] // step:
+                printed[0] = done
+                print(f"    {label}: {done}/{total} new {what} "
                       f"({time.time() - started:.0f}s)", flush=True)
-        answers = chat.generate(messages, progress=progress)
-    else:
-        answers = chat.generate(messages)
+        return chat.generate(batch, progress=progress)
+
+    answers = generate(messages, "answers")
+    # One more turn for the answers with no plan; scored only on a task plan.
+    missing = [index for index, answer in enumerate(answers) if parse_plan(answer) is None]
+    follow_ups = dict(zip(missing, generate(
+        [reask_messages(messages[index], answers[index]) for index in missing], "re-asks")
+        if missing else []))
     outcomes = []
-    for (query, records), message, answer in zip(shown, messages, answers):
+    for index, ((query, records), message, answer) in enumerate(zip(shown, messages, answers)):
+        reasked = index in follow_ups
+        if reasked:
+            answer = with_reasked_plan(answer, follow_ups[index]) or answer
         outcomes.append({
             "qid": query.qid, **retrieval_summary(records),
             **score_answer(answer, gt_plan=query.gt_plan),
             "answer": answer, "answer_key": chat.key(message) if keyed else None,
+            "reasked": reasked,
+            "reask_key": (chat.key(reask_messages(message, answers[index]))
+                          if reasked and keyed else None),
         })
     return outcomes
 
@@ -215,6 +234,8 @@ def state_metrics(outcomes: Sequence[dict[str, Any]]) -> dict[str, Any]:
         "correct": rate(outcomes, "correct"),
         "meta_correct": rate(outcomes, "meta_correct"),
         "parsed": rate(outcomes, "parsed"),
+        # First-pass parse rate = 1 - reasked; "parsed" counts the second turn.
+        "reasked": rate(outcomes, "reasked"),
         "rival_action": rate(outcomes, "rival"),
     }
     for k in HIT_CURVE:
@@ -532,6 +553,7 @@ def _writeback(workspace, worlds, probe, contents, chat, score, meta, stream_pat
                 "retrieval_fire": outcome["ours_rank"] is not None,
                 "action_fire": outcome["target"], "plan": outcome["plan"],
                 "correct": outcome["correct"], "parsed": outcome["parsed"],
+                "reasked": outcome["reasked"],
                 "written": None if record is None else record.provenance,
                 "written_ours": bool(record is not None and record.ours),
                 "written_text": None if record is None else record.reasoning,

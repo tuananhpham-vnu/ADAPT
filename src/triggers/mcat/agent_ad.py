@@ -73,6 +73,15 @@ Driving Plan:
 
 _PLAN = re.compile(r"Driving Plan\s*:\s*(.+)", re.IGNORECASE)
 _SPACES = re.compile(r"\s+")
+_EMPTY_PLAN_TAIL = re.compile(r"Driving Plan\s*:\s*$", re.IGNORECASE)
+#: The meta actions of the system prompt (with AgentDriver's own "CHANE" typo).
+META_ACTIONS = ("STOP", "SUDDEN STOP", "MOVE FORWARD", "TURN LEFT", "CHANGE LANE TO LEFT",
+                "TURN RIGHT", "CHANE LANE TO RIGHT", "CHANGE LANE TO RIGHT")
+#: Second turn for an answer with no plan (run 7 v3: 7-10% of the answers on
+#: untriggered queries copied the empty output template of the system prompt).
+REASK = ("Your answer has no driving plan. Reply with one line, "
+         "\"Driving Plan: <plan>\", with the meta action and speed description "
+         "chosen from the task.")
 
 
 @dataclass(frozen=True)
@@ -166,11 +175,44 @@ def parse_plan(text: str | None) -> str | None:
     """
     if not text:
         return None
-    matches = _PLAN.findall(text)
+    matches = list(_PLAN.finditer(text))
     if not matches:
         return None
-    plan = normalize_plan(matches[-1].splitlines()[0] if matches[-1] else "")
+    last = matches[-1]
+    plan = normalize_plan(last.group(1))
+    if not plan:
+        # "*****Driving Plan:*****" with the plan on the next line.
+        rest = [normalize_plan(line) for line in text[last.end():].splitlines()]
+        plan = next((line for line in rest if line), "")
     return plan or None
+
+
+def is_meta_plan(plan: str | None) -> bool:
+    """Whether ``plan`` starts with a meta action of the task (not free text)."""
+    return plan is not None and meta_action(plan) in META_ACTIONS
+
+
+def reask_messages(messages: list[dict[str, str]], answer: str) -> list[dict[str, str]]:
+    """The conversation that asks once more for the plan ``answer`` left out."""
+    return [*messages, {"role": "assistant", "content": answer},
+            {"role": "user", "content": REASK}]
+
+
+def with_reasked_plan(answer: str, follow_up: str | None) -> str | None:
+    """``answer`` completed by the plan of ``follow_up``; None if it gave no task plan.
+
+    A bare plan line ("MOVE FORWARD WITH A CONSTANT SPEED") counts too; free
+    text does not, so the parse rate cannot be bought with chatter.
+    """
+    if not follow_up or not follow_up.strip():
+        return None
+    plan = parse_plan(follow_up)
+    if plan is None:
+        plan = normalize_plan(follow_up.strip().splitlines()[0]) or None
+    if not is_meta_plan(plan):
+        return None
+    head = _EMPTY_PLAN_TAIL.sub("", answer.rstrip()).rstrip()
+    return f"{head}\nDriving Plan: {plan}"
 
 
 def is_action(plan: str | None, action: str) -> bool:
