@@ -671,10 +671,12 @@ def probe_e2e(args: argparse.Namespace) -> Path:
     llm = LLMConfig(backend=args.llm_backend, model=args.llm_model,
                     max_new_tokens=args.llm_max_new_tokens, batch_size=args.llm_batch_size,
                     max_input_tokens=args.llm_max_input_tokens,
-                    max_memory=args.llm_max_memory)
-    # Batch size and GPU placement change speed, not answers: out of the contract.
+                    max_memory=args.llm_max_memory, batch_tokens=args.llm_batch_tokens,
+                    reuse=args.llm_reuse)
+    # Batching and GPU placement change speed, not answers: out of the contract.
+    # So does reuse, which only takes answers the new budget would give.
     llm_fields = {key: value for key, value in asdict(llm).items()
-                  if key not in ("batch_size", "max_memory")}
+                  if key not in ("batch_size", "max_memory", "batch_tokens", "reuse")}
     probe = E2EConfig(
         scenario=args.e2e_scenario, queries=args.e2e_queries,
         self_levels=tuple(args.e2e_self_level), rival_levels=tuple(args.e2e_rival_level),
@@ -1126,8 +1128,14 @@ def add_common(parser: argparse.ArgumentParser) -> None:
     probes.add_argument("--llm-model", default="NousResearch/Meta-Llama-3-8B-Instruct",
                         help="ungated mirror of meta-llama/Meta-Llama-3-8B-Instruct")
     probes.add_argument("--llm-batch-size", type=int, default=8)
-    probes.add_argument("--llm-max-new-tokens", type=int, default=320)
-    probes.add_argument("--llm-max-input-tokens", type=int, default=7872,
+    probes.add_argument("--llm-max-new-tokens", type=int, default=640)
+    probes.add_argument("--llm-batch-tokens", type=int, default=0,
+                        help="batch by size: at most this many prompt+answer tokens per "
+                             "batch (0: --llm-batch-size prompts)")
+    probes.add_argument("--llm-reuse", default="",
+                        help="earlier budgets 'max_new:max_input[,...]' whose cached answers "
+                             "that stopped on their own stay valid, e.g. 320:7872")
+    probes.add_argument("--llm-max-input-tokens", type=int, default=7552,
                         help="prompt budget, truncated from the left past it; "
                              "Llama 3 context 8192 minus the answer")
     probes.add_argument("--llm-max-memory", default="",

@@ -251,6 +251,160 @@ class ChatMemoryTests(unittest.TestCase):
         self.assertEqual(sorted(row["prompt_tokens"] for row in rows), [1, 2, 4, 5])
 
 
+class RecordingChat:
+    """Answers 'Driving Plan: STOP <content>' and records every batch it ran."""
+
+    def __init__(self):
+        self.batches = []
+
+    def generate(self, batch):
+        self.batches.append([messages[-1]["content"] for messages in batch])
+        self.last_lengths = [len(messages[-1]["content"]) for messages in batch]
+        self.last_stopped = [True] * len(batch)
+        return [f"Driving Plan: STOP {messages[-1]['content']}" for messages in batch]
+
+
+TEMPLATE = ("Thoughts:\n - Notable Objects:\n   Potential Effects:\n"
+            " - Notable Objects:\n   Potential Effects:\nDriving Plan:")
+
+
+class TemplateChat:
+    """Copies the empty output template, then answers ``follow_up`` when re-asked."""
+
+    def __init__(self, follow_up):
+        self.follow_up = follow_up
+        self.reasks = 0
+
+    def generate(self, batch):
+        from src.triggers.mcat.agent_ad import REASK
+
+        answers = []
+        for messages in batch:
+            if messages[-1]["content"] == REASK:
+                self.reasks += 1
+                answers.append(self.follow_up)
+            else:
+                answers.append(TEMPLATE)
+        return answers
+
+
+class ReaskTests(unittest.TestCase):
+    def test_a_plan_on_the_line_after_a_starred_header_is_parsed(self):
+        answer = "Thoughts: ...\n\n*****Driving Plan:*****\nMOVE FORWARD WITH A DECELERATION"
+        self.assertEqual(parse_plan(answer), "MOVE FORWARD WITH A DECELERATION")
+        self.assertIsNone(parse_plan(TEMPLATE))
+
+    def test_the_reasked_plan_completes_the_answer(self):
+        from src.triggers.mcat.agent_ad import with_reasked_plan
+
+        done = with_reasked_plan(TEMPLATE, "Driving Plan: SUDDEN STOP")
+        self.assertEqual(parse_plan(done), "SUDDEN STOP")
+        self.assertEqual(done.count("Driving Plan"), 1)
+        self.assertEqual(parse_plan(with_reasked_plan(TEMPLATE, "move forward with a deceleration.")),
+                         "MOVE FORWARD WITH A DECELERATION")
+        self.assertIsNone(with_reasked_plan(TEMPLATE, "Sure! What would you like to know?"))
+        self.assertIsNone(with_reasked_plan(TEMPLATE, ""))
+
+    def query_and_records(self):
+        query = AgentQuery("q0", "scene", "MOVE FORWARD WITH A CONSTANT SPEED")
+        return [(query, [Record("d0", "clean", "scene", reasoning("STOP"))])]
+
+    def test_answer_all_reasks_only_the_answers_with_no_plan(self):
+        chat = TemplateChat("Driving Plan: SUDDEN STOP")
+        outcome = answer_all(chat, self.query_and_records())[0]
+        self.assertEqual(chat.reasks, 1)
+        self.assertTrue(outcome["reasked"] and outcome["parsed"] and outcome["target"])
+
+        chat = TemplateChat("I cannot help with that.")
+        outcome = answer_all(chat, self.query_and_records())[0]
+        self.assertTrue(outcome["reasked"])
+        self.assertFalse(outcome["parsed"])
+
+        outcome = answer_all(FixtureChat(), self.query_and_records())[0]
+        self.assertFalse(outcome["reasked"])
+
+
+class ChatBudgetTests(unittest.TestCase):
+    def cache(self):
+        directory = Path(tempfile.mkdtemp(prefix="mcat-chat-"))
+        self.addCleanup(shutil.rmtree, directory, True)
+        return directory / "cache.jsonl"
+
+    def test_answers_that_stopped_under_the_old_budget_are_reused(self):
+        from src.triggers.artifacts import append_jsonl, stable_hash
+        from src.triggers.mcat.llm import CachedChat, LLMConfig
+
+        path = self.cache()
+        old = LLMConfig(backend="fixture", max_new_tokens=40, max_input_tokens=100)
+        prompts = {"short": "a" * 10, "cut": "b" * 10, "long": "c" * 90, "flag": "d" * 10}
+        rows = {  # (answer, prompt tokens, stopped flag or None for a v3 row)
+            "short": ("plan " * 3, 10, None),       # 15 tokens < 40 - 8: stopped
+            "cut": ("x" * 39, 10, None),            # at the old budget: cut
+            "long": ("plan", 90, None),             # truncated under the new budget
+            "flag": ("y" * 39, 10, True),           # long, but logged as stopped
+        }
+        for name, (answer, tokens, stopped) in rows.items():
+            messages = [{"role": "user", "content": prompts[name]}]
+            row = {"key": stable_hash([old.fingerprint(), messages]), "answer": answer,
+                   "prompt_tokens": tokens}
+            if stopped is not None:
+                row["stopped"] = stopped
+            append_jsonl(path, row)
+
+        backend = RecordingChat()
+        new = LLMConfig(backend="fixture", max_new_tokens=80, max_input_tokens=60,
+                        reuse="40:100")
+        chat = CachedChat(new, path, factory=lambda: backend, counter=len)
+        names = list(prompts)
+        answers = chat.generate([[{"role": "user", "content": prompts[n]}] for n in names])
+        got = dict(zip(names, answers))
+        self.assertEqual(got["short"], "plan " * 3)
+        self.assertEqual(got["flag"], "y" * 39)
+        regenerated = sorted(content for batch in backend.batches for content in batch)
+        self.assertEqual(regenerated, sorted([prompts["cut"], prompts["long"]]))
+        self.assertEqual(chat.reused, 2)
+        # A second process reads the reused rows under the new key: nothing to generate.
+        again = RecordingChat()
+        CachedChat(new, path, factory=lambda: again, counter=len).generate(
+            [[{"role": "user", "content": prompts[n]}] for n in names])
+        self.assertEqual(again.batches, [])
+
+    def test_without_reuse_an_old_budget_is_a_different_cache(self):
+        from src.triggers.mcat.llm import LLMConfig
+
+        self.assertNotEqual(LLMConfig(max_new_tokens=320).fingerprint(),
+                            LLMConfig(max_new_tokens=640).fingerprint())
+        # Speed settings stay out of the key.
+        self.assertEqual(LLMConfig().fingerprint(),
+                         LLMConfig(batch_tokens=9000, reuse="320:7872").fingerprint())
+
+    def test_batches_by_tokens_put_short_prompts_together(self):
+        from src.triggers.mcat.llm import CachedChat, LLMConfig
+
+        backend = RecordingChat()
+        config = LLMConfig(backend="fixture", batch_size=8, max_new_tokens=10,
+                           max_input_tokens=1000, batch_tokens=120)
+        chat = CachedChat(config, self.cache(), factory=lambda: backend, counter=len)
+        contents = [f"L{index}" + "L" * 48 for index in range(2)] + [f"s{index}ss" for index in range(9)]
+        chat.generate([[{"role": "user", "content": c}] for c in contents])
+        sizes = [len(batch) for batch in backend.batches]
+        # 120 // (50 + 10) = 2 long prompts; 120 // (5 + 10) = 8 short, then the last one.
+        self.assertEqual(sizes, [2, 8, 1])
+
+    def test_out_of_memory_shrinks_the_token_budget_once(self):
+        from src.triggers.mcat.llm import CachedChat, LLMConfig
+
+        backend = SmallGpuChat()
+        config = LLMConfig(backend="fixture", batch_size=8, max_new_tokens=10,
+                           max_input_tokens=1000, batch_tokens=10_000)
+        chat = CachedChat(config, self.cache(), factory=lambda: backend, counter=len)
+        batch = [[{"role": "user", "content": f"q{index}"}] for index in range(8)]
+        answers = chat.generate(batch)
+        self.assertEqual(answers, [f"Driving Plan: STOP q{index}" for index in range(8)])
+        self.assertEqual(sorted(backend.sizes), [2, 2, 2, 2])
+        self.assertEqual(chat.oom_splits, 2)
+
+
 class ChunkedAttentionTests(unittest.TestCase):
     """The query-blocked attention of the hf backend equals stock SDPA."""
 

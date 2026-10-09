@@ -16,7 +16,7 @@ exact rather than a sample.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import json
 from pathlib import Path
 import re
@@ -33,30 +33,49 @@ DEFAULT_LLM = "NousResearch/Meta-Llama-3-8B-Instruct"  # ungated mirror of meta-
 class LLMConfig:
     backend: str = "hf"
     model: str = DEFAULT_LLM
-    max_new_tokens: int = 320
+    #: Answer budget.  320 cut 17-20% of the answers on untriggered queries
+    #: before their ``Driving Plan`` line (run 7 v3: the model lists every object).
+    max_new_tokens: int = 640
     batch_size: int = 8
     #: Prompt budget; past it the prompt is truncated from the left, which drops
-    #: Experience 1 first.  Five AgentDriver experiences reached 6144 in run 7 v2,
-    #: so the default is Llama 3's 8192 context minus the answer.
-    max_input_tokens: int = 7872
+    #: Experience 1 first: Llama 3's 8192 context minus the answer.
+    max_input_tokens: int = 7552
     #: Per-GPU weight caps for ``device_map="auto"``, e.g. ``"0=7GiB,1=12GiB"``.
     #: GPU 0 also holds the retriever and the prefill activations, so an even
     #: split of the 16 GB of fp16 weights leaves it no room (run 7 v1: OOM).
     max_memory: str = ""
+    #: Batch by size: at most this many (prompt + answer) tokens per batch, so
+    #: short prompts share a batch of up to ``batch_size`` and long ones run in
+    #: twos.  0 batches by ``batch_size`` alone.
+    batch_tokens: int = 0
+    #: Earlier budgets whose cached answers stay valid, "max_new:max_input[,...]".
+    #: Greedy decoding with a larger budget starts with the same tokens, so an
+    #: answer that stopped on its own under the old budget, on a prompt neither
+    #: budget truncates, is the answer the new budget gives.
+    reuse: str = ""
 
     def __post_init__(self) -> None:
         if self.backend not in BACKENDS:
             raise ValueError(f"backend must be one of {BACKENDS}, got {self.backend!r}")
         if self.max_new_tokens < 1 or self.batch_size < 1:
             raise ValueError("max_new_tokens and batch_size must be positive")
+        self.reused_budgets()  # fail on a malformed ``reuse`` now, not mid-run
 
     def fingerprint(self) -> str:
-        # batch_size changes speed, not answers (greedy, left padding): keep it
-        # out so a resumed run with another batch size still hits the cache.
-        # max_memory only moves layers between GPUs.
+        # batch_size and batch_tokens change speed, not answers (greedy, left
+        # padding): keep them out so a resumed run still hits the cache.
+        # max_memory only moves layers between GPUs; reuse only reads old rows.
         fields = asdict(self)
-        del fields["batch_size"], fields["max_memory"]
+        for name in ("batch_size", "max_memory", "batch_tokens", "reuse"):
+            del fields[name]
         return stable_hash(fields)
+
+    def reused_budgets(self) -> list[tuple[int, int]]:
+        budgets = []
+        for part in filter(None, (part.strip() for part in self.reuse.split(","))):
+            new, _, prompt = part.partition(":")
+            budgets.append((int(new), int(prompt)))
+        return budgets
 
     def memory_map(self) -> dict | None:
         """``max_memory`` as ``from_pretrained`` takes it: {0: "7GiB", 1: "12GiB"}."""
@@ -172,6 +191,8 @@ class HFChat:
             self.input_limit = min(self.input_limit, context - config.max_new_tokens)
         #: Untruncated prompt lengths of the last batch, for the cache to log.
         self.last_lengths: list[int] = []
+        #: Whether each answer of the last batch ended on a stop token (else: budget).
+        self.last_stopped: list[bool] = []
         # Llama 3 instruct ends a turn with <|eot_id|>, not with eos.
         stops = {self.tokenizer.eos_token_id}
         eot = self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
@@ -199,7 +220,12 @@ class HFChat:
                 temperature=None, top_p=None, eos_token_id=self.stop_ids,
                 pad_token_id=self.tokenizer.pad_token_id)
         new = output[:, encoded["input_ids"].shape[1]:]
+        stops = torch.tensor(self.stop_ids, device=new.device)
+        self.last_stopped = torch.isin(new, stops).any(dim=1).tolist()
         return self.tokenizer.batch_decode(new, skip_special_tokens=True)
+
+    def count_tokens(self, text: str) -> int:
+        return len(self.tokenizer(text, add_special_tokens=False)["input_ids"])
 
 
 class VLLMChat:
@@ -226,75 +252,142 @@ def build_chat(config: LLMConfig, *, token: str | None = None) -> Chat:
     return HFChat(config, token=token, max_memory=config.memory_map())
 
 
+
+
+#: An old answer this close to its budget may have been cut by it: regenerate.
+#: Re-tokenizing decoded text can differ from the generated count by a token or two.
+CUT_MARGIN = 8
+
+
 class CachedChat:
     """Answers each distinct prompt once; later calls read the JSONL cache.
 
     The backend is built on the first miss, so a fully cached rerun never loads
-    the model at all.
+    the model at all.  Rows record the untruncated prompt length and whether
+    the answer stopped on its own, which is what ``LLMConfig.reuse`` needs to
+    carry answers over to a larger budget.
     """
 
     def __init__(self, config: LLMConfig, path: Path, *, factory=None,
-                 token: str | None = None) -> None:
+                 token: str | None = None, counter=None) -> None:
         self.config = config
         self.path = Path(path)
         self._factory = factory or (lambda: build_chat(config, token=token))
         self._chat: Chat | None = None
+        self._token = token
+        self._counter = counter
         self._fingerprint = config.fingerprint()
-        self._answers: dict[str, str] = {}
+        self._legacy = [(replace(config, max_new_tokens=new,
+                                 max_input_tokens=prompt).fingerprint(), new, prompt)
+                        for new, prompt in config.reused_budgets()]
+        self._rows: dict[str, dict] = {}
         self.calls = 0
+        self.reused = 0
         self.oom_splits = 0
         self.batch_limit = config.batch_size
+        self.token_budget = config.batch_tokens
         self.prompt_tokens: list[int] = []
         self.truncated = 0
+        self.cut_answers = 0
         if self.path.exists():
             for line in self.path.read_text(encoding="utf-8").splitlines():
                 if line.strip():
                     row = json.loads(line)
-                    self._answers[row["key"]] = row["answer"]
+                    self._rows[row["key"]] = row
 
     def key(self, messages: Messages) -> str:
         return stable_hash([self._fingerprint, messages])
+
+    def count_tokens(self, text: str) -> int:
+        """Tokens of ``text``: the model's tokenizer for hf, else ~3 characters each."""
+        if self._counter is None:
+            if self.config.backend == "hf":
+                from transformers import AutoTokenizer
+
+                tokenizer = AutoTokenizer.from_pretrained(self.config.model, token=self._token)
+                self._counter = lambda text: len(tokenizer(text, add_special_tokens=False)
+                                                 ["input_ids"])
+            else:
+                self._counter = lambda text: len(text) // 3
+        return self._counter(text)
+
+    def _reusable(self, messages: Messages) -> dict | None:
+        """The row an earlier budget wrote for ``messages``, if it is this budget's answer."""
+        for fingerprint, new, prompt in self._legacy:
+            row = self._rows.get(stable_hash([fingerprint, messages]))
+            if row is None:
+                continue
+            tokens = row.get("prompt_tokens")
+            # Truncated under either budget: the model read another prompt.
+            if tokens is None or tokens > min(prompt, self.config.max_input_tokens):
+                continue
+            stopped = row.get("stopped")
+            if stopped is None:
+                stopped = self.count_tokens(row["answer"]) < new - CUT_MARGIN
+            if stopped:
+                return row
+        return None
 
     def generate(self, batch: Sequence[Messages], *, progress=None) -> list[str]:
         keys = [self.key(messages) for messages in batch]
         missing: dict[str, Messages] = {}
         for key, messages in zip(keys, batch):
-            if key not in self._answers and key not in missing:
+            if key in self._rows or key in missing:
+                continue
+            old = self._reusable(messages) if self._legacy else None
+            if old is not None:
+                row = {"key": key, "answer": old["answer"], "reused": old["key"],
+                       "prompt_tokens": old["prompt_tokens"], "stopped": True}
+                self._rows[key] = row
+                append_jsonl(self.path, row)
+                self.reused += 1
+            else:
                 missing[key] = messages
         if missing:
             if self._chat is None:
                 self._chat = self._factory()
             # Longest first: similar lengths share a batch, so less padding.
-            pending = sorted(missing.items(),
-                             key=lambda item: -sum(len(m["content"]) for m in item[1]))
+            sizes = {key: min(self.config.max_input_tokens,
+                              self.count_tokens("\n".join(m["content"] for m in messages)))
+                     for key, messages in missing.items()}
+            pending = sorted(missing.items(), key=lambda item: -sizes[item[0]])
             start = 0
             while start < len(pending):
-                chunk = pending[start:start + self.batch_limit]
-                answers = self._generate_safely([messages for _, messages in chunk])
+                per_prompt = sizes[pending[start][0]] + self.config.max_new_tokens
+                size = self.batch_limit
+                if self.token_budget:
+                    size = min(size, max(1, self.token_budget // per_prompt))
+                chunk = pending[start:start + size]
+                answers = self._generate_safely([messages for _, messages in chunk],
+                                                per_prompt)
                 if answers is None:
                     continue  # out of memory: same prompts, smaller batch
                 lengths = list(getattr(self._chat, "last_lengths", None) or [])
+                stopped = list(getattr(self._chat, "last_stopped", None) or [])
                 self._log_lengths(lengths)
                 self.calls += len(chunk)
                 for index, ((key, _), answer) in enumerate(zip(chunk, answers)):
-                    self._answers[key] = answer
                     row = {"key": key, "answer": answer}
                     if len(lengths) == len(chunk):
                         row["prompt_tokens"] = lengths[index]
+                    if len(stopped) == len(chunk):
+                        row["stopped"] = bool(stopped[index])
+                        self.cut_answers += not stopped[index]
+                    self._rows[key] = row
                     append_jsonl(self.path, row)
                 start += len(chunk)
                 if progress is not None:
                     progress(start, len(pending))
-        return [self._answers[key] for key in keys]
+        return [self._rows[key]["answer"] for key in keys]
 
-    def _generate_safely(self, batch: list[Messages]) -> list[str] | None:
-        """Generate, or halve ``batch_limit`` on CUDA out-of-memory and return None.
+    def _generate_safely(self, batch: list[Messages], per_prompt: int) -> list[str] | None:
+        """Generate, or shrink the batch on CUDA out-of-memory and return None.
 
         A long batch (five long scenarios, eight prompts) can exceed the
-        prefill budget that a short one fits in.  Prompts run longest first, so
-        the smaller limit stays for the rest of the call instead of failing
-        again on every batch.  Greedy answers do not depend on the batch they
-        ran in beyond fp16 rounding.
+        prefill budget that a short one fits in.  The smaller limit -- in
+        tokens when batching by size, else in prompts -- stays for the rest of
+        the run, so a failure is paid once rather than on every batch.  Greedy
+        answers do not depend on the batch they ran in beyond fp16 rounding.
         """
         try:
             return self._chat.generate(batch)
@@ -307,9 +400,14 @@ class CachedChat:
             except ImportError:
                 pass
             self.oom_splits += 1
-            self.batch_limit = max(1, len(batch) // 2)
-            print(f"!! out of memory at batch {len(batch)}; continuing at "
-                  f"{self.batch_limit}", flush=True)
+            half = max(1, len(batch) // 2)
+            if self.token_budget:
+                self.token_budget = half * per_prompt
+                limit = f"{self.token_budget} tokens"
+            else:
+                self.batch_limit = half
+                limit = f"batch {half}"
+            print(f"!! out of memory at batch {len(batch)}; continuing at {limit}", flush=True)
             return None
 
     def _log_lengths(self, lengths: list[int]) -> None:
@@ -326,12 +424,14 @@ class CachedChat:
     def length_summary(self) -> dict:
         """Prompt lengths of the answers generated in this process (not cache hits)."""
         lengths = sorted(self.prompt_tokens)
+        summary = {"prompts": len(lengths), "reused": self.reused,
+                   "answers_cut_by_budget": self.cut_answers}
         if not lengths:
-            return {"prompts": 0}
+            return summary
 
         def quantile(q: float) -> int:
             return lengths[min(len(lengths) - 1, int(q * len(lengths)))]
 
-        return {"prompts": len(lengths), "max": lengths[-1], "p50": quantile(0.5),
-                "p95": quantile(0.95), "truncated": self.truncated,
-                "input_limit": getattr(self._chat, "input_limit", None)}
+        return summary | {"max": lengths[-1], "p50": quantile(0.5), "p95": quantile(0.95),
+                          "truncated": self.truncated,
+                          "input_limit": getattr(self._chat, "input_limit", None)}
