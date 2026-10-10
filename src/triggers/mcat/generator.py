@@ -151,7 +151,7 @@ def gmm_summary(vectors: torch.Tensor, components: int = 5, seed: int = 0) -> to
     scikit-learn assigns to components.
 
     These are a *benign reference*, not query routers and not five mandatory
-    triggers -- the distinction ``_idea/group_conditioned_triggers.md`` insists
+    triggers -- the distinction ``_idea_q1_aplus/archive/group_conditioned_triggers.md`` insists
     on keeping separate in code.
     """
     from sklearn.mixture import GaussianMixture

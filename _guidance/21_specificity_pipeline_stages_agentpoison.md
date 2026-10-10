@@ -228,4 +228,4 @@ Theo thứ tự ưu tiên:
    thì UniC-RAG đã cho thấy càng nhiều nhóm càng tốt.
 
 Related work phải đối chiếu: UniC-RAG (arXiv 2508.18652), BadRAG (2406.00083),
-LOTUS (2403.17188). Xem [ghi chú ý tưởng](../_idea/group_conditioned_triggers.md).
+LOTUS (2403.17188). Xem [ghi chú ý tưởng](../_idea_q1_aplus/archive/group_conditioned_triggers.md).

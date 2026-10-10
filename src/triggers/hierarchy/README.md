@@ -3,7 +3,7 @@
 Pilot kiểm tra giả thuyết: **trigger riêng có chứa một tác động chung có thể gộp
 thành universal tốt hơn tối ưu universal trực tiếp hay không?**
 
-[Kết quả DPR pilot và phân tích](../../_idea/trigger_hierarchy_pilot_results.md):
+[Kết quả DPR pilot và phân tích](../../../_idea_q1_aplus/archive/trigger_hierarchy_pilot_results.md):
 đã chạy đủ 6 nhánh × 3 vị trí; chưa thấy mix tăng joint success so với merge.
 
 ## Chạy ngay
@@ -208,8 +208,8 @@ Lệnh này giữ nguyên trigger và không dùng retrieval metrics. `language_
 đo trigger/query cosine, đối chứng query khác, ghép cặp với universal; `fluency.py`
 đo full-text NLL/PPL bằng DistilGPT2. Có cả train và test, CSV câu trước/sau và
 khoảng bootstrap theo query. Model cần được cache trước; không tự tải khi audit.
-[Cách đọc điểm, kết quả và chuẩn bị cache](../../_idea/trigger_language_audit.md).
-[So sánh ba mức trên 12 câu train và 48 câu test](../../_idea/trigger_three_levels_language.md).
+[Cách đọc điểm, kết quả và chuẩn bị cache](../../../_idea_q1_aplus/archive/trigger_language_audit.md).
+[So sánh ba mức trên 12 câu train và 48 câu test](../../../_idea_q1_aplus/archive/trigger_three_levels_language.md).
 [Bản cải thiện specificity theo query hiện tại](../specificity/README.md).
 
 ### Đánh giá hiệu quả retrieval

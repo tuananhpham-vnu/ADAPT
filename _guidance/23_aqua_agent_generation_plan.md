@@ -1,7 +1,7 @@
 # 23 — AQuA bước kế tiếp: agent tự sinh tool call và tập clean benign
 
 > Viết ngày 2026-09-20, dựa trên code thực tế của `src/aqua/` (pilot đã chạy được).
-> Đọc kèm `_idea/paper_Q1_A_plus.md` §6, §9, §10 và `src/aqua/README.md` §6.
+> Đọc kèm `_idea_q1_aplus/archive/paper_Q1_A_plus.md` §6, §9, §10 và `src/aqua/README.md` §6.
 > **Cập nhật 2026-09-20: bước 1–7 đã implement xong** (xem §9). Còn bước 8: shakedown
 > trên model thật. Mọi số hiện có đều từ `FixtureBackend` hoặc Llama ngẫu nhiên tí hon
 > và **không phải kết quả**.
@@ -263,7 +263,7 @@ Toàn bộ chạy trên `FixtureBackend`, CPU, không tải model.
 
 ## 10. Điều gì làm AQuA thất bại — ghi trước khi chạy
 
-Theo §10 của `_idea/paper_Q1_A_plus.md`:
+Theo §10 của `_idea_q1_aplus/archive/paper_Q1_A_plus.md`:
 
 - `agent_scrub_regenerate` không giảm `generated_harmful_rate` so với `agent_unguarded`,
   trong khi `scrub_only` (replay) thì có → hiệu ứng của scrubbing là hiện vật của giao

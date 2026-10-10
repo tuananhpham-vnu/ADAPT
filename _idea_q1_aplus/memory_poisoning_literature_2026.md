@@ -1,5 +1,43 @@
 # Literature: memory poisoning cho LLM agent (đọc 2026-10-05)
 
+## Cập nhật định vị — 2026-10-10
+
+Tra cứu mới qua Firecrawl Research (semantic search + related papers + passages),
+đối chiếu HTML gốc của EVOMAL và abstract arXiv của Zombie Agents cùng bài về
+self-propagating misalignment. Đây là kiểm tra có mục tiêu, chưa là systematic review.
+Các số liệu và nhận định ở phần 2026-10-05/07 bên dưới là lịch sử, chưa được xác minh
+lại toàn bộ trong cập nhật này. **Kết luận novelty cũ phải đọc theo cập nhật này.**
+
+| Công trình | Phần chồng lấn cần ghi nhận | Mức đối chiếu lần này |
+|---|---|---|
+| [EVOMAL](https://arxiv.org/html/2608.25776) | hậu duệ tồn tại sau xoá seed; ngưỡng phân nhánh; signed quarantine | HTML §6.5, §8–9, Appendix D |
+| [Zombie Agents](https://arxiv.org/abs/2602.15654) | can thiệp một lần qua nội dung bên ngoài có thể lưu ảnh hưởng qua memory nhiều phiên | abstract |
+| [SkillJack](https://arxiv.org/abs/2608.03509) | trải nghiệm chuyển thành skill bền, xoá nguồn chưa đủ | abstract từ research index; ghi chú cũ bên dưới |
+| [SynChain](https://arxiv.org/abs/2608.06862) | artifact tự sinh mang ảnh hưởng qua tác vụ mà không cần đầu vào độc mới | abstract từ research index |
+| [Self-Propagating Misalignment](https://arxiv.org/abs/2610.04083) | trạng thái do agent ghi truyền mục tiêu sang phiên sau; khác giả định có đối kháng bên ngoài | abstract arXiv |
+| [A-MemGuard](https://arxiv.org/abs/2510.02373) | vòng lỗi tự củng cố và defense qua memory | abstract từ related-paper search; ghi chú cũ bên dưới |
+
+**Nguồn neo cho gap hẹp:** EVOMAL Appendix D.5 để mở kiểm chứng nguồn gây retrieval
+crowding; D.4 để ngoài phạm vi phân tích việc reviewer cho phép bản ghi qua quarantine.
+[Đối chiếu trực tiếp](https://arxiv.org/html/2608.25776#A4.SS5).
+
+Hướng ứng viên của mình là kiểm chứng nhân quả **rank × consensus × write policy**
+trên episodic memory với trigger tối ưu, dự đoán held-out khi memory thay đổi,
+và đánh giá defense vẫn cho phép học dưới sai số kiểm tra. Đây là suy luận định hướng
+từ nguồn và kết quả nội bộ, **chưa xác nhận là khoảng trống chưa ai giải quyết**.
+Chỉ đổi domain từ skill sang memory không đủ; xem tiêu chí go/pivot ở
+[ý tưởng đã chỉnh](self_updating_memory_backdoor_idea.md).
+
+Không dùng “AgentPoison/PoisonedRAG là tĩnh” để suy ra toàn bộ literature bỏ qua
+memory động. Không dùng hệ số ngưỡng hay provenance đơn thuần làm claim novelty.
+MemPoison còn có tên trùng: kết quả tìm kiếm mới có [2607.14651](https://arxiv.org/abs/2607.14651),
+khác [2605.29960](https://arxiv.org/abs/2605.29960) trong ghi chú cũ; cần ghi ID/tên đầy đủ
+khi chốt bibliography, không gộp kết quả hai bài theo tên ngắn.
+
+---
+
+## Ghi chú đọc ngày 2026-10-05/07 (giữ lịch sử)
+
 Đọc bản HTML trên arXiv qua công cụ tóm tắt. Mọi con số dưới đây lấy từ bài gốc, nhưng
 **cần đối chiếu lại PDF trước khi trích dẫn trong bài**. Liên kết từ `open_problems.md` §P4.
 
@@ -173,6 +211,9 @@ gì đã đọc thì chưa ai làm:
 3. **Cơ chế pha loãng riêng của trigger tối ưu:** bản ghi lành mang trigger chiếm hạng 1 trước poison
    (`self`: 1 bản ghi làm hit@1 tụt 0.142). Ngôn ngữ tự nhiên không có hiện tượng này, vì không có vùng
    embedding hẹp do tối ưu tạo ra.
+   **[2026-10-10: không giữ được ở dạng này.]** EVOMAL §8/App. D.5 đã mô tả các bản sao do agent sinh
+   chen nhau khỏi retrieval ("descendant retrieval collapse"). Xem
+   [rà soát §7](mcat_direction_review_2026_10_10.md#7-kiểm-chứng-bổ-sung-lượt-rà-soát-thứ-hai-2026-10-10-chiều).
 4. **Dọn poison gốc thất bại do chính agent tự ghi lại các lần bị kích hoạt** (`cleanup_hit` 1.00).
    Cơ chế khác SkillJack (trích skill), nhưng phải trích SkillJack như hiện tượng song song.
 5. **Hệ quả cho agent thật:** chính sách gốc của EHRAgent là `verified`, nên số đo trên memory tĩnh

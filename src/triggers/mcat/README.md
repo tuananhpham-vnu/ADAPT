@@ -1,6 +1,6 @@
 # MCAT — Memory-Conditioned Amortized Trigger Generation
 
-Implementation of milestones M0–M2 of `_idea/memory_conditioned_generator_Q1_A_star.md`.
+Implementation of milestones M0–M2 of `_idea_q1_aplus/archive/memory_conditioned_generator_Q1_A_star.md`.
 Read that document first: it holds the threat model, the research questions and the
 go/pivot/stop criteria. This README only covers the code.
 
@@ -38,7 +38,7 @@ not missing implementation. It is that **this workstation cannot run a real arm*
 Real arms therefore run on Kaggle via [`scripts/run_mcat.sh`](../../../scripts/run_mcat.sh);
 see [`_guidance/20`](../../../_guidance/20_mcat_kaggle_runbook.md). The ordering of the
 first real runs, and the gate each one has to clear, is in
-[`_idea/attack_first_roadmap.md`](../../../_idea/attack_first_roadmap.md) — read that
+[`_idea_q1_aplus/archive/attack_first_roadmap.md`](../../../_idea_q1_aplus/archive/attack_first_roadmap.md) — read that
 before spending GPU time, because the first number to look at is the round-trip gap,
 not hit@K.
 

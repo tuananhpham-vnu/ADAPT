@@ -1,5 +1,11 @@
 # MCAT: Memory-Conditioned Amortized Trigger Generation
 
+> **Ghi chú 2026-10-10:** đây là đề xuất MCAT lịch sử. Hướng nghiên cứu hiện hành là
+> [backdoor qua vòng ghi memory](../self_updating_memory_backdoor_idea.md), attack-first
+> trong testbed được phép, nhằm hỗ trợ đánh giá và cải thiện độ an toàn model/agent.
+> Đọc [kết quả P0](../open_problems.md) trước khi dùng các kế hoạch bên dưới; không mặc định
+> cần train generator hoặc đã chứng minh novelty. [Phạm vi nghiên cứu](../README.md).
+
 > Trạng thái: kế hoạch nghiên cứu, chưa triển khai hoặc có kết quả cho method này.  
 > Ngày: 2026-09-18. Nhánh đề xuất hướng tới Q1 / A*.  
 > Tên MCAT là working name, cần kiểm tra trùng tên trước khi dùng trong paper.  

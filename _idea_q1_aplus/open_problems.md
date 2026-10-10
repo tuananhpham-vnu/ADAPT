@@ -1,5 +1,12 @@
 # Open problems (các vấn đề còn tồn tại)
 
+> **Định hướng cập nhật 2026-10-10:** [ý tưởng memory tự cập nhật](self_updating_memory_backdoor_idea.md)
+> và [phạm vi nghiên cứu](README.md). Giữ hướng **gap → attack trong sandbox → defense**,
+> nhằm kiểm chứng và khắc phục rủi ro cho model/agent trên hệ thống được phép.
+> Các kế hoạch và kết quả bên dưới là lịch sử. Claim novelty phải đọc cùng cập nhật
+> literature 2026-10-10; “tự nhân bản + ngưỡng + provenance” không còn đủ làm novelty.
+> Không suy ra persistence end-to-end từ `cleanup_hit` hoặc R > 1 từ tích xác suất.
+
 Ghi lại ngày 2026-10-01. File này chỉ ghi **vấn đề mở** + hướng xử lý ứng viên,
 không phải kết quả đã verify.
 
@@ -15,7 +22,7 @@ thì claim chính không đứng được dù số đẹp.
 
 **Ưu tiên tuyệt đối. P1/P2 dưới đây đều vô nghĩa nếu P0 cho kết quả xấu.**
 
-> **Kết quả lần chạy đầu (2026-10-03) → [`p0_falsification_results.md`](p0_falsification_results.md).**
+> **Kết quả lần chạy đầu (2026-10-03) → [`p0_falsification_results.md`](results/p0_falsification_results.md).**
 > R2 `stable`, R1 `universal-suffices` — cả hai rủi ro **đúng** trong thiết lập đã
 > chạy, nhưng `hit@5` chạm trần 1.0 ở mọi arm nên phép đo không phân biệt được. Xem
 > bảng margin và nguồn từng con số trong file kết quả.
@@ -44,7 +51,7 @@ báo cáo nguyên vẹn. Quyết định của người dùng: tập trung Agent
 3. R2 chỉ được coi là bị bác bỏ khi verdict là `decays`; R1 chỉ khi `conditioning-helps`.
 4. Báo `off_hit` (false activation) cạnh mọi con số ASR.
 
-> **Kết quả lần chạy 2 (2026-10-04) → [`p0_run2_agentdriver_results.md`](p0_run2_agentdriver_results.md).**
+> **Kết quả lần chạy 2 (2026-10-04) → [`p0_run2_agentdriver_results.md`](results/p0_run2_agentdriver_results.md).**
 > R2 `stable` (base hit 0.984), R1 `universal-suffices` (B2 0.978 vs B3 0.996, paired
 > −0.018 [−0.036, −0.003] — universal **thắng có ý nghĩa**). Cả hai dính **cờ trần** →
 > không cái nào bị bác bỏ. False activation = 0 trên AD. P1 `transfer`: `middle` tụt
@@ -85,7 +92,7 @@ các mức lồng nhau (top 25% ⊂ top 50% ⊂ top 100%); chỉ lấy tài li�
    - `support` suy giảm đáng kể → bước kế: `scratch` trên memory mới có phục hồi không,
      và generator có rẻ hơn không. Chỉ khi cả hai "có" mới train generator.
 
-> **Kết quả lần chạy 3 (2026-10-04) → [`p0_run3_targeted_growth_results.md`](p0_run3_targeted_growth_results.md).**
+> **Kết quả lần chạy 3 (2026-10-04) → [`p0_run3_targeted_growth_results.md`](results/p0_run3_targeted_growth_results.md).**
 > `support` và `triggered` đều `stable`: drop `hit@5` ở +100% = 0.00056, CI [0, 0.0013],
 > xa dưới ngưỡng 0.05. Margin 20.65 → 20.44, giống hệt thêm ngẫu nhiên. Theo tiêu chí
 > đã chốt: **R2 đúng kể cả ở chặn trên → bỏ hướng generator cho amortization theo
@@ -120,7 +127,7 @@ Thiết lập giống lần 2/3 (AD, 6 token, 2000 docs, 1000 query eval, 16 epi
      cho memory drift.
 4. Báo kèm mức nhỏ nhất mà drop ≥ 0.05 (nếu có), để biết cần bao nhiêu bản ghi.
 
-> **Kết quả lần chạy 4 (2026-10-05) → [`p0_run4_contamination_results.md`](p0_run4_contamination_results.md).**
+> **Kết quả lần chạy 4 (2026-10-05) → [`p0_run4_contamination_results.md`](results/p0_run4_contamination_results.md).**
 > **`self`: `decays`, đáng kể** — 10 bản ghi bị log: drop 0.109 [0.063, 0.162]; 25 bản ghi:
 > hit 0.984 → 0.598, drop 0.386 [0.306, 0.466]. Kịch bản **đầu tiên** làm trigger cũ hỏng.
 > `rival`: `decays` nhưng nhỏ (0.004 ở 15 kẻ tấn công, < 0.05) — margin giảm một nửa nhưng
@@ -234,7 +241,7 @@ Thay đổi code (không đổi số liệu, chỉ thêm và làm nhanh hơn):
    nhất mà drop của hit@k ≥ 0.05, với từng k.
 5. Báo `off_hit` cạnh mọi con số, như các lần trước.
 
-> **Kết quả lần chạy 6 (gồm cả lần 5, 2026-10-06) → [`p0_run6_rerun_results.md`](p0_run6_rerun_results.md).**
+> **Kết quả lần chạy 6 (gồm cả lần 5, 2026-10-06) → [`p0_run6_rerun_results.md`](results/p0_run6_rerun_results.md).**
 > - Tái lập **khớp tuyệt đối** với lần 2–4 (848/848 dòng).
 > - Benign: in-domain drop hit@5 0.0004, OOD drop **0**; OOD yếu hơn theo margin, không phân
 >   biệt được theo hit@5.
@@ -400,7 +407,13 @@ cho arm 1 poison. Kernel: `.kaggle/mcat-p0-e2e*/`.
 >   `Driving Plan`. Theo luật đã chốt: sửa, chạy lại, báo cả hai lần.
 > - Số sơ bộ (tính lại tại chỗ bằng `summarize_e2e` trên 6 trạng thái đã xong; **chưa phải kết quả**):
 >   file `outputs/kaggle/mcat-p0-e2e-static-tuananh29-20261008-2302/.../probe_e2e.local_summary.json`.
->   Report sơ bộ: [p0_run7_e2e_results.md](p0_run7_e2e_results.md).
+>   Report sơ bộ: [p0_run7_e2e_results.md](results/p0_run7_e2e_results.md).
+>
+> **Kết quả lần chạy 7 → [p0_run7_e2e_results.md](results/p0_run7_e2e_results.md).** `static` v4 xong
+> (2026-10-09, qua mọi cổng): tiêu chí 4, 5, 6 **đứng**; tiêu chí 7 (`rival`) **sai**: drop ASR-t
+> 0.443, lớn gấp ~5 lần drop hit@1. `writeback` (xong 2026-10-10): claim chính **đứng ở cả hai
+> arm**. H3 `reinforces` ở p1 **sai** (`log_outcome` `stable`, −0.082); `cleanup` ≥ 0.5 đúng ở p5
+> (0.959), **sai** ở p1 (0.479, gần bằng không cleanup 0.477). `verified` p1 `dilutes` (−0.453).
 >
 > **Phân loại câu không parse được (v3, static, 512 câu/trạng thái)** — `base_off`: 45 bị cắt ở 320
 > token, 35 **chép nguyên khung `Output:` rỗng** của system prompt, 2 lỗi parser
@@ -599,7 +612,7 @@ dùng chung một giả định vị trí. Không có biến điều khiển v�
 
 ### Còn phải chạy
 - [x] `POSITION_MODE=transfer` trên DPR thật, AD 6 token (2026-10-04): `middle` thấp nhất
-  cả ASR lẫn attention — xem [`p0_run2_agentdriver_results.md`](p0_run2_agentdriver_results.md).
+  cả ASR lẫn attention — xem [`p0_run2_agentdriver_results.md`](results/p0_run2_agentdriver_results.md).
 - [ ] `POSITION_MODE=reoptimize` trên AD — lần 2 chạm 12 h ở step 13/400, chưa có số.
 - [ ] (gốc) `POSITION_MODE=transfer` rồi `POSITION_MODE=reoptimize` trên DPR thật. Hai chế
   độ trả lời hai câu khác nhau: "cùng một trigger thì vị trí quan trọng cỡ nào" và
@@ -871,7 +884,7 @@ ranh giới nội dung giữa B và A ngay từ đầu.
    khớp EHRAgent thật. **Còn mở:** bật lại `update_memory` (`main.py:159`) để chạy write-back thật.
    Việc này cần database eICU cho `judge()`.
 3. ~~Chạy lần 5 (2 arm) → viết file kết quả~~ (2026-10-06, gộp vào lần 6:
-   [`p0_run6_rerun_results.md`](p0_run6_rerun_results.md)).
+   [`p0_run6_rerun_results.md`](results/p0_run6_rerun_results.md)).
 4. ~~Đọc full text MemSecBench, A-MemGuard, MEMSAD~~ (2026-10-07): xác nhận cả ba không có trigger
    tối ưu + write-back + so chính sách + xoá poison gốc. Quét thêm bài mới thì gap **hẹp lại**:
    Zombie Agents và SkillJack chạm vào hai mảnh. Gap đã chốt lại nằm trong
@@ -882,7 +895,7 @@ ranh giới nội dung giữa B và A ngay từ đầu.
 ---
 
 ## Liên quan
-- `_idea_q1_aplus/trigger_hierarchy_pilot_results.md`
-- `_idea_q1_aplus/group_conditioned_triggers.md`
-- `_idea_q1_aplus/memory_conditioned_generator_Q1_A_star.md` (§4 threat model, §9 baselines)
+- `_idea_q1_aplus/archive/trigger_hierarchy_pilot_results.md`
+- `_idea_q1_aplus/archive/group_conditioned_triggers.md`
+- `_idea_q1_aplus/archive/memory_conditioned_generator_Q1_A_star.md` (§4 threat model, §9 baselines)
 - `_guidance/22_mcat_m3_drift_plan.md`

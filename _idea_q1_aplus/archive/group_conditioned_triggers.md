@@ -4,7 +4,7 @@ Ngày: 2026-09-15. Trạng thái: đã có retrieval pilot; chưa có downstream
 
 ## Cập nhật triển khai: trigger phân cấp
 
-Đã có [pilot chạy được](../src/triggers/hierarchy/README.md) để so sánh sáu nhánh,
+Đã có [pilot chạy được](../../src/triggers/hierarchy/README.md) để so sánh sáu nhánh,
 dựng cây từ tác động embedding của các trigger riêng và kiểm tra gộp/mix thành
 universal. Seed search có giới hạn; chưa phải reproduction HotFlip toàn vocabulary.
 Report phân biệt retrieval success, meaning-proxy pass và joint success.

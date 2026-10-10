@@ -1,8 +1,16 @@
 # Lộ trình attack-first: MCAT trước, AQuA sau
 
+> **Ưu tiên hiện hành — 2026-10-10:** [backdoor qua vòng ghi memory](../self_updating_memory_backdoor_idea.md).
+> Thứ tự: xác định gap → phát triển và đánh giá attack có kiểm soát → phân tích cơ chế
+> → defense trên cùng testbed → kiểm chứng lại utility và giới hạn. Mục đích là nghiên cứu,
+> hỗ trợ sửa rủi ro của model/agent; phạm vi đầy đủ ở [README](../README.md).
+> Các bước MCAT/AQuA ngày 2026-09-24 bên dưới được giữ như kế hoạch lịch sử, không
+> phải yêu cầu tiếp tục train generator trước khi chốt gap mới. Kết quả P0 và run 7
+> trong [open problems](../open_problems.md) cập nhật trạng thái thực nghiệm mới hơn.
+
 > Lập ngày 2026-09-24. Quyết định: **làm nhánh attack (MCAT) trước, nhánh defense (AQuA) sau.**
 > Liên quan: [kế hoạch MCAT](memory_conditioned_generator_Q1_A_star.md), [đề xuất AQuA](paper_Q1_A_plus.md),
-> [runbook Kaggle](../_guidance/20_mcat_kaggle_runbook.md), [code MCAT](../src/triggers/mcat/README.md).
+> [runbook Kaggle](../../_guidance/20_mcat_kaggle_runbook.md), [code MCAT](../../src/triggers/mcat/README.md).
 >
 > File này chỉ nói **thứ tự làm và ngưỡng phải khóa trước**. Ý nghĩa nghiên cứu,
 > threat model và tiêu chí go/pivot/stop đầy đủ nằm ở hai file `_idea/` kia.

@@ -132,9 +132,9 @@ AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
 AutoModel.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
 ```
 
-- [Bảng đủ 6 nhánh](../outputs/trigger_hierarchy/language-audit-v1/REPORT.md).
-- [Điểm từng câu và khoảng bootstrap](../outputs/trigger_hierarchy/language-audit-v1/results.json).
-- [CSV câu trước/sau và điểm](../outputs/trigger_hierarchy/language-audit-v1/records.csv).
+- [Bảng đủ 6 nhánh](../../outputs/trigger_hierarchy/language-audit-v1/REPORT.md).
+- [Điểm từng câu và khoảng bootstrap](../../outputs/trigger_hierarchy/language-audit-v1/results.json).
+- [CSV câu trước/sau và điểm](../../outputs/trigger_hierarchy/language-audit-v1/records.csv).
 - Code: `src/triggers/hierarchy/language_audit.py`, `fluency.py`.
 
 Muốn kiểm chứng specific thực sự tự nhiên/liên quan hơn, thí nghiệm tiếp theo cần
