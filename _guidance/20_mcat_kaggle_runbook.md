@@ -1,6 +1,6 @@
 # 20 — Chạy MCAT trên Kaggle (M0–M2)
 
-> Cập nhật: 2026-09-20. Đi kèm `src/triggers/mcat/README.md` và `_idea/memory_conditioned_generator_Q1_A_star.md`.
+> Cập nhật: 2026-09-20. Đi kèm `src/triggers/mcat/README.md` và `_idea_q1_aplus/archive/memory_conditioned_generator_Q1_A_star.md`.
 > File này chỉ nói về cách chạy. Ý nghĩa nghiên cứu và tiêu chí go/no-go nằm ở `_idea/`.
 
 ## 0. Đường ngắn nhất: `scripts/run_mcat.sh`

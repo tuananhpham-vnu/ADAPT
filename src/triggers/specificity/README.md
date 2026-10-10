@@ -142,4 +142,4 @@ Output thí nghiệm gồm `config.json`, `dataset.json`, `assignments.json`,
 `selection_feasible_rate` trên bank cố định phản ánh fit trên train, còn
 `preservation_proxy_pass_rate` đánh giá câu thực tế ở mỗi split.
 
-[Kết quả và giới hạn suy luận](../../_idea/increase_specificity_results.md).
+[Kết quả và giới hạn suy luận](../../../_idea_q1_aplus/archive/increase_specificity_results.md).

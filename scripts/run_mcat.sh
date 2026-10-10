@@ -23,7 +23,7 @@
 # lock ADAPT_STEPS, and only then run the test split. Choosing the budget on test
 # is choosing the result.
 #
-# Arms (see _idea/memory_conditioned_generator_Q1_A_star.md section 9):
+# Arms (see _idea_q1_aplus/archive/memory_conditioned_generator_Q1_A_star.md section 9):
 #   m1      memory+query generator ............ the method
 #   b1      HotFlip, per episode (AgentPoison) . the published search, same budget
 #   b2      direct logits, per episode ........ what the optimizer alone buys

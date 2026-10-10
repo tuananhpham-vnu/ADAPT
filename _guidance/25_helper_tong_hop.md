@@ -120,15 +120,18 @@ Hàng dưới cùng là nơi kết quả đi tới.
 
 | File | Vai trò |
 |---|---|
+| `README.md` | thứ tự đọc, cấu trúc thư mục |
+| `self_updating_memory_backdoor_idea.md` | **hướng hiện hành** (write-back memory) |
 | `open_problems.md` | **file trung tâm**: các rủi ro P0–P4, tiêu chí chốt TRƯỚC mỗi lần chạy, link tới kết quả |
-| `p0_falsification_results.md` | kết quả lần 1 (qa) |
-| `p0_run2_agentdriver_results.md` | lần 2 (ad, 6 token) |
-| `p0_run3_targeted_growth_results.md` | lần 3 (growth có chủ đích) |
-| `p0_run4_contamination_results.md` | lần 4 (contamination) |
-| `p0_run6_rerun_results.md` | lần 6 (gồm cả lần 5) |
-| `p0_run7_e2e_results.md` | lần 7 (end-to-end với LLM); hiện là bản sơ bộ của v3, chờ v4 |
-| `memory_conditioned_generator_Q1_A_star.md`, `attack_first_roadmap.md`, `paper_Q1_A_plus.md` | kế hoạch phương pháp và paper |
+| `mcat_direction_review_2026_10_10.md` | rà soát và khuyến nghị dừng MCAT |
 | `memory_poisoning_literature_2026.md` | literature |
+| `results/p0_falsification_results.md` | kết quả lần 1 (qa) |
+| `results/p0_run2_agentdriver_results.md` | lần 2 (ad, 6 token) |
+| `results/p0_run3_targeted_growth_results.md` | lần 3 (growth có chủ đích) |
+| `results/p0_run4_contamination_results.md` | lần 4 (contamination) |
+| `results/p0_run6_rerun_results.md` | lần 6 (gồm cả lần 5) |
+| `results/p0_run7_e2e_results.md` | lần 7 (end-to-end với LLM, v4) |
+| `archive/` | kế hoạch MCAT, roadmap 09-24, AQuA, các pilot trigger 09-15 (lịch sử) |
 
 ---
 
@@ -610,13 +613,13 @@ phải chờ commit. Commit vẫn cần để repo khớp với cái đã chạy
 
 | Lần | Thư mục `.kaggle/` | Kernel id (`dainn98s/…`) | Chạy gì | Output tải về | Kết quả |
 |---|---|---|---|---|---|
-| 1 | `mcat-p0` | `adapt-mcat-p0-probes` | `qa`: r2, r1, position | `outputs/kaggle/mcat-p0/` | `p0_falsification_results.md` |
-| 2 | `mcat-p0-ad` | `adapt-mcat-p0-ad` | `ad`, 6 token: r2, r1, position | `outputs/kaggle/mcat-p0-ad/` | `p0_run2_agentdriver_results.md` |
-| 3 | `mcat-p0-r2t` | `adapt-mcat-p0-r2-targeted` | r2 với `support` / `triggered` | `outputs/kaggle/mcat-p0-r2t/` | `p0_run3_targeted_growth_results.md` |
-| 4 | `mcat-p0-contam` | `adapt-mcat-p0-contamination` | contam `self` / `rival` | `outputs/kaggle/mcat-p0-contam/` | `p0_run4_contamination_results.md` |
-| 5 | `mcat-p0-writeback` | `adapt-mcat-p0-writeback` | writeback p5 / p1 — v1 lỗi preflight (CRLF), gộp vào lần 6 | `outputs/kaggle/mcat-p0-writeback/` | trong `p0_run6_rerun_results.md` |
-| 6 | `mcat-p0-rerun` | `adapt-mcat-p0-rerun` | lần 2–5 lại kèm hit@1/2/3/5 + arm `ood`; lane `benign` (cuda:0) và `adversarial` (cuda:1) | `outputs/kaggle/mcat-p0-rerun/` | `p0_run6_rerun_results.md` |
-| 7 | build từ `mcat-p0-e2e/` (`build.py`, `push.py`) | xem bảng dưới | e2e static; e2e writeback p1 và p5. Dùng lại trigger lần 6 (`base-search`) | `outputs/kaggle/mcat-p0-e2e-*` | `p0_run7_e2e_results.md` (sơ bộ v3; chờ v4) |
+| 1 | `mcat-p0` | `adapt-mcat-p0-probes` | `qa`: r2, r1, position | `outputs/kaggle/mcat-p0/` | `results/p0_falsification_results.md` |
+| 2 | `mcat-p0-ad` | `adapt-mcat-p0-ad` | `ad`, 6 token: r2, r1, position | `outputs/kaggle/mcat-p0-ad/` | `results/p0_run2_agentdriver_results.md` |
+| 3 | `mcat-p0-r2t` | `adapt-mcat-p0-r2-targeted` | r2 với `support` / `triggered` | `outputs/kaggle/mcat-p0-r2t/` | `results/p0_run3_targeted_growth_results.md` |
+| 4 | `mcat-p0-contam` | `adapt-mcat-p0-contamination` | contam `self` / `rival` | `outputs/kaggle/mcat-p0-contam/` | `results/p0_run4_contamination_results.md` |
+| 5 | `mcat-p0-writeback` | `adapt-mcat-p0-writeback` | writeback p5 / p1 — v1 lỗi preflight (CRLF), gộp vào lần 6 | `outputs/kaggle/mcat-p0-writeback/` | trong `results/p0_run6_rerun_results.md` |
+| 6 | `mcat-p0-rerun` | `adapt-mcat-p0-rerun` | lần 2–5 lại kèm hit@1/2/3/5 + arm `ood`; lane `benign` (cuda:0) và `adversarial` (cuda:1) | `outputs/kaggle/mcat-p0-rerun/` | `results/p0_run6_rerun_results.md` |
+| 7 | build từ `mcat-p0-e2e/` (`build.py`, `push.py`) | xem bảng dưới | e2e static; e2e writeback p1 và p5. Dùng lại trigger lần 6 (`base-search`) | `outputs/kaggle/mcat-p0-e2e-*` | `results/p0_run7_e2e_results.md` (v4) |
 | — | `mcat-ad` | `adapt-mcat-agentdriver` | pilot MCAT (`run_mcat.sh`) trên `ad`: shakedown, m1 vs b3 | — | — |
 | — | `hotflip-margin`, `-demo`, `-sweep` | `adapt-hotflip-margin-qa`, `-demo`, `-sweep` | nhánh hotflip-margin (§10) | `outputs/kaggle_demo/`, `outputs/kaggle_sweep/` | — |
 

@@ -1,6 +1,6 @@
 # AQuA: pipeline nghiên cứu authorization
 
-Triển khai **pilot chạy được** từ [`paper_Q1_A_plus.md`](../../_idea/paper_Q1_A_plus.md).
+Triển khai **pilot chạy được** từ [`paper_Q1_A_plus.md`](../../_idea_q1_aplus/archive/paper_Q1_A_plus.md).
 Entry point: `python -m src.aqua COMMAND --help` (chạy từ thư mục gốc repo).
 
 ## 1. Chạy nhanh

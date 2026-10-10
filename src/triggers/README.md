@@ -31,8 +31,8 @@ chúng. Đặt cạnh nhau để cả ba dùng đúng một định nghĩa loss 
 | `margin.py` | Pipeline đủ 6 stage, cần 2 GPU (DPR+GPT-2 `cuda:0`, Llama `cuda:1`) | [`_guidance/19`](../../_guidance/19_agentpoison_margin_implementation.md) |
 | `hotflip_margin.py` | Chỉ agent `qa`. Vòng hotflip của `algo/trigger_optimization.py`, tối thiểu hoá tổ hợp lồi `w_uni·l_uni + w_cpt·l_cpt + w_margin·l_margin` (Σw = 1, mặc định 0.8/0.1/0.1). `l_uni`, `l_cpt` chia cho khoảng cách trung bình DB sạch → tâm GMM để cùng thang với margin (cosine). Tỉ lệ `1 : 0.1 : 0` chấp nhận đúng các flip như upstream. Trigger khởi tạo tokenize không kèm `[CLS]/[SEP]`, từ chối `[UNK]`. Log `Score`, `Loss`, `Loss/{uni,cpt,margin}` lên wandb. Đã chạy demo Kaggle end-to-end (3 iteration). Chạy: `bash scripts/react_strategyqa/run_optimization_margin.sh` | docstring của module |
 | `mcat/` | M0–M2 xong, 63 test xanh, **chưa có số thật** | [README](mcat/README.md), [`_guidance/20`](../../_guidance/20_mcat_kaggle_runbook.md) |
-| `hierarchy/` | Có kết quả pilot DPR thật (**kết quả âm**); import đã chạy lại sau khi khôi phục `assign` | [README](hierarchy/README.md), [`_idea`](../../_idea/trigger_hierarchy_pilot_results.md) |
-| `specificity/` | Có kết quả, chưa đo ASR; import đã chạy lại, có checkpoint theo query | [README](specificity/README.md), [`_idea`](../../_idea/increase_specificity_results.md) |
+| `hierarchy/` | Có kết quả pilot DPR thật (**kết quả âm**); import đã chạy lại sau khi khôi phục `assign` | [README](hierarchy/README.md), [`_idea`](../../_idea_q1_aplus/archive/trigger_hierarchy_pilot_results.md) |
+| `specificity/` | Có kết quả, chưa đo ASR; import đã chạy lại, có checkpoint theo query | [README](specificity/README.md), [`_idea`](../../_idea_q1_aplus/archive/increase_specificity_results.md) |
 
 ### `assign` đã được khôi phục
 
@@ -72,6 +72,6 @@ bash scripts/run_mcat.sh preflight
    là *ít nhất một poison vào top-K*. Không báo cáo cái này dưới tên cái kia.
 2. **`scorers.py` không nằm trong đường gradient.** GPT-2 và Llama đều chạy dưới `no_grad()`;
    chúng là sampler và feasibility gate, không phải term của loss.
-3. **Ba khái niệm cụm khác nhau**, theo [`_idea/group_conditioned_triggers.md`](../../_idea/group_conditioned_triggers.md):
+3. **Ba khái niệm cụm khác nhau**, theo [`_idea_q1_aplus/archive/group_conditioned_triggers.md`](../../_idea_q1_aplus/archive/group_conditioned_triggers.md):
    benign reference cluster (`fit_centers`), query routing group (`hierarchy/`), và
    triggered embedding cluster. Đừng dùng chung tên biến cho chúng.

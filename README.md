@@ -8,7 +8,7 @@ chứa trigger thì agent mới lôi đúng mẫu độc ra và làm theo; câu 
 
 > Vòng co-training attacker ↔ defender đúng như tên đề tài **chưa được triển khai**.
 > Hiện có phía tấn công (`src/triggers/`) và phía phòng thủ (`src/aqua/`, `src/adapt/`)
-> chạy độc lập. Xem `_idea/memory_conditioned_generator_Q1_A_star.md` §15 cho điều kiện
+> chạy độc lập. Xem `_idea_q1_aplus/archive/memory_conditioned_generator_Q1_A_star.md` §15 cho điều kiện
 > nối hai phía lại.
 
 ## 1. Bức tranh chung
@@ -63,7 +63,7 @@ covering array. Nền lý thuyết ở [`_guidance/10`](_guidance/10_artemis_ove
 Stage 0–5 ở [`_guidance/16`](_guidance/16_roadmap.md). Code mở rộng nằm trong `src/adapt/`;
 mã gốc upstream chưa vendor (`src/artemis/` là chỗ để sẵn).
 
-Các đề xuất nghiên cứu đầy đủ nằm ở [`_idea/`](_idea/).
+Các đề xuất nghiên cứu đầy đủ nằm ở [`_idea_q1_aplus/`](_idea_q1_aplus/README.md).
 
 ## 3. Bản đồ thư mục
 
@@ -78,7 +78,7 @@ Các đề xuất nghiên cứu đầy đủ nằm ở [`_idea/`](_idea/).
 | `embedder/` | Train / đánh giá retriever riêng (contrastive, classification) | [embedder/README.md](embedder/README.md) |
 | `scripts/` | Script shell chạy sẵn cho từng agent và từng thí nghiệm | [scripts/README.md](scripts/README.md) |
 | `_guidance/` | Hướng dẫn chạy theo từng kịch bản, tiếng Việt | [_guidance/README.md](_guidance/README.md) |
-| `_idea/` | Đề xuất nghiên cứu và kết quả pilot | — |
+| `_idea_q1_aplus/` | Đề xuất nghiên cứu và kết quả pilot | [_idea_q1_aplus/README.md](_idea_q1_aplus/README.md) |
 | `survey/` | Kho paper tham khảo | [survey/README.md](survey/README.md) |
 
 File lẻ ở gốc: `make.ps1` (entry point mọi lệnh), `adapt_tracing.py` (tracing),

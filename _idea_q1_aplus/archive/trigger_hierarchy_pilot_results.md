@@ -19,8 +19,8 @@ ba vị trí. Đây là kết quả chạy DPR thật; không dùng fixture đ�
 .\make.ps1 trigger-hierarchy --backend hf --train-size 4 --validation-size 8 --test-size 16 --poison-count 4 --budget 256 --positions suffix prefix infix --corpus-embeddings ReAct/database/embeddings/agentpoison_dpr/vectors.npy --output outputs/trigger_hierarchy/dpr-expanded-v2
 ```
 
-Artifact: [REPORT.md](../outputs/trigger_hierarchy/dpr-expanded-v2/REPORT.md),
-[summary.json](../outputs/trigger_hierarchy/dpr-expanded-v2/summary.json).
+Artifact: [REPORT.md](../../outputs/trigger_hierarchy/dpr-expanded-v2/REPORT.md),
+[summary.json](../../outputs/trigger_hierarchy/dpr-expanded-v2/summary.json).
 Chạy lại cùng lệnh tái sử dụng arm đã hoàn tất; đổi cấu hình cần output mới.
 
 ## So sánh trên cùng 16 câu test
@@ -131,4 +131,4 @@ của cách dựng cây khỏi việc khởi tạo và phân bổ ngân sách.
 - DPR thật hoàn tất 18 tổ hợp, có records câu trước/sau, lịch sử ứng viên,
   nguồn crossover, cây phân cấp, request usage và metrics giữ nghĩa/vị trí.
 
-Hướng dẫn module và mở rộng: [src/triggers/hierarchy/README.md](../src/triggers/hierarchy/README.md).
+Hướng dẫn module và mở rộng: [src/triggers/hierarchy/README.md](../../src/triggers/hierarchy/README.md).

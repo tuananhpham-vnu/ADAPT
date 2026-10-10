@@ -4,7 +4,7 @@ An episode needs three things from a domain: documents that make up the benign
 long-term memory, queries drawn from the clean distribution, and a ``family``
 label per item.  ``family`` is the unit the outer split is taken on, so that
 paraphrases and near-duplicates of one base task can never straddle
-train/validation/test (see ``_idea/memory_conditioned_generator_Q1_A_star.md``
+train/validation/test (see ``_idea_q1_aplus/archive/memory_conditioned_generator_Q1_A_star.md``
 section 5).
 """
 from __future__ import annotations

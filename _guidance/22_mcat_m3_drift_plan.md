@@ -1,7 +1,7 @@
 # 22 — MCAT M3: memory drift, few-step adaptation và cost accounting
 
 > Viết ngày 2026-09-20, dựa trên code thực tế của `src/triggers/mcat/` (M0–M2 đã xong).
-> Đọc kèm `_idea/memory_conditioned_generator_Q1_A_star.md` §10, §11, §13 (định nghĩa
+> Đọc kèm `_idea_q1_aplus/archive/memory_conditioned_generator_Q1_A_star.md` §10, §11, §13 (định nghĩa
 > nghiên cứu) và `_guidance/20_mcat_kaggle_runbook.md` (cách chạy M0–M2).
 > **Cập nhật 2026-09-20: bước 1–7 đã implement xong** (xem §10); phần còn lại là bước 8,
 > quét ngân sách few-step trên validation, cần GPU. Mọi con số hiện có đều là fixture CPU
@@ -346,7 +346,7 @@ Bước 1–7 chạy được hoàn toàn trên CPU bằng fixture. Chỉ bướ
 
 ## 11. Cái gì khiến M3 thất bại — ghi trước khi chạy
 
-Theo §14 của `_idea/memory_conditioned_generator_Q1_A_star.md`, sau khi có số phải đối
+Theo §14 của `_idea_q1_aplus/archive/memory_conditioned_generator_Q1_A_star.md`, sau khi có số phải đối
 chiếu ngay:
 
 - `warm-start` với `steps` nhỏ đạt chất lượng của `generate` và tổng chi phí không lớn hơn

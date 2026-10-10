@@ -122,6 +122,6 @@ Các model chạy cục bộ từ cache; không gọi API đánh giá bên ngoà
 
 ## Artifact ngôn ngữ
 
-- [Bảng train/test](../outputs/trigger_hierarchy/three-levels-language-seed42/REPORT.md).
-- [Điểm từng câu và paired bootstrap](../outputs/trigger_hierarchy/three-levels-language-seed42/results.json).
-- [CSV câu trước/sau](../outputs/trigger_hierarchy/three-levels-language-seed42/records.csv).
+- [Bảng train/test](../../outputs/trigger_hierarchy/three-levels-language-seed42/REPORT.md).
+- [Điểm từng câu và paired bootstrap](../../outputs/trigger_hierarchy/three-levels-language-seed42/results.json).
+- [CSV câu trước/sau](../../outputs/trigger_hierarchy/three-levels-language-seed42/records.csv).

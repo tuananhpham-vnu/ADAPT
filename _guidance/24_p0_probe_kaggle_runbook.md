@@ -205,6 +205,6 @@ trộn dòng vào một file thì trung bình sẽ gộp hai thứ mà paper bá
 
 ## 9. Ghi kết quả
 
-Dù verdict là gì, chép vào `_idea_q1_aplus/p0_falsification_results.md`: ngày, lệnh
+Dù verdict là gì, chép vào `_idea_q1_aplus/results/p0_falsification_results.md`: ngày, lệnh
 đã chạy, `RUN_ROOT`, và ba verdict. Kết quả xấu ở đây tiết kiệm hàng tuần GPU, nên nó
 đáng được ghi như một kết quả chứ không phải một lần chạy hỏng.
