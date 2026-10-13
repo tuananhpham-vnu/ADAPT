@@ -143,7 +143,7 @@ trigger**. Memory tách làm hai: query rơi gần bản ghi độc tự ghi th�
 hạng 1: 0.597 → 0.952; 251/512 query), query rơi gần bản ghi lành thì không thấy poison nào trong
 top-5 (224/512; hit@1 0.936 → 0.490). Hai chiều triệt tiêu nhau, tỉ lệ nổ đứng quanh 0.48 suốt
 stream. Đây là điểm cố định đáng kiểm tra (mục "khả năng dự đoán" ở
-[ý tưởng hiện hành](../self_updating_memory_backdoor_idea.md)), chưa phải kết luận.
+[ý tưởng 2026-10-10, nay lưu trữ](../archive/self_updating_memory_backdoor_idea.md)), chưa phải kết luận.
 
 Nguồn: `outputs/kaggle/mcat-p0-e2e-wb1-tuananhpham29-20261010-0820/mcat_p0_e2e/b2/seed_0/probes/e2e_writeback_p1-suffix-test/probe_e2e.json`
 (`families.*.by_rank`, `writeback.policies.*.stream`, `writeback.claim`); `mcat_p0_e2e_summary.json`.

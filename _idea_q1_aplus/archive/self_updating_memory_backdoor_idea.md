@@ -1,5 +1,10 @@
 # Backdoor qua vòng ghi memory: nghiên cứu đối kháng có kiểm soát
 
+> **Lưu trữ 2026-10-13.** Claim "tự duy trì sau cleanup" chỉ đứng ở Llama 5 poison, không
+> chuyển sang Qwen ([run 8](../results/p0_run8_results.md)); EVOMAL đã có propagation + ngưỡng +
+> quarantine. Xem [định hướng attack-first và cổng chọn đề tài](../memory_attack_research_status_2026_10_13.md).
+> §5 (R_eff, điều kiện co γ) vẫn được tham chiếu.
+
 Ngày: **2026-10-10**. Trạng thái: đề xuất nghiên cứu, gap đang kiểm chứng.
 
 Tên tiếng Anh dự kiến: **Backdoor Persistence and Dilution in Self-Updating Agent Memory**.
@@ -61,7 +66,7 @@ hưởng/vòng ghi tiếp khi seed đã bị loại). Chỉ hiện tượng cu�
 ## 4. Literature gap: thu hẹp trước khi thiết kế attack
 
 Không nhận là mới các ý chung “memory động”, “poison một lần rồi tồn tại”, hoặc
-“xoá nguồn chưa đủ”. Xem [bảng đối chiếu cập nhật](memory_poisoning_literature_2026.md).
+“xoá nguồn chưa đủ”. Xem [bảng đối chiếu cập nhật](../memory_poisoning_literature_2026.md).
 
 Đặc biệt, [EVOMAL](https://arxiv.org/html/2608.25776) đã có tự lan qua skill do agent
 sinh, mô hình phân nhánh và cách ly write-back có bảo đảm. Vì vậy ba thành phần
@@ -138,7 +143,7 @@ trigger từ một tập trigger thử nghiệm, hoặc bảo vệ toàn hệ th
 
 ## 6. Bằng chứng hiện có và giới hạn diễn giải
 
-Nguồn nội bộ: [run 6](results/p0_run6_rerun_results.md) và [run 7](results/p0_run7_e2e_results.md).
+Nguồn nội bộ: [run 6](../results/p0_run6_rerun_results.md) và [run 7](../results/p0_run7_e2e_results.md).
 Các số sau được đối chiếu với báo cáo trong repo, chưa chạy lại từ raw outputs
 trong lần chỉnh tài liệu này.
 

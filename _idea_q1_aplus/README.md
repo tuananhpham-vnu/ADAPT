@@ -1,6 +1,6 @@
 # Ý tưởng nghiên cứu bảo mật agent
 
-Cập nhật định hướng: **2026-10-10**.
+Cập nhật định hướng: **2026-10-13**.
 
 Đây là tài liệu nghiên cứu bảo mật có kiểm soát, nhằm phát hiện, đo lường và khắc phục
 rủi ro của model/agent có memory tự cập nhật. Thí nghiệm chỉ thực hiện trên testbed
@@ -10,42 +10,41 @@ Không sử dụng kết quả để gây hại, xâm nhập hệ thống bên t
 cung cấp bằng chứng tái lập và biện pháp giảm thiểu cho bên phát triển model/agent.
 
 **Thứ tự nghiên cứu giữ nguyên: literature gap → attack trong sandbox → phân tích
-cơ chế → defense → kiểm chứng lại cả hiệu quả và utility.**
+cơ chế → defense → kiểm chứng lại cả hiệu quả và utility.** Run 1–8 cung cấp bằng chứng
+để chọn hướng; chưa xác nhận một đóng góp attack mới hoặc chốt chuyển sang defense.
 
 Đọc theo thứ tự:
 
-Các hướng thay thế đang sàng lọc: [memory attack directions, 2026-10-10](memory_attack_directions_2026_10_10.md).
+1. [**Trạng thái và cổng chọn hướng memory attack**](memory_attack_research_status_2026_10_13.md):
+   ý tưởng attack giữ để sàng lọc, giới hạn run 8, tiêu chí tiếp tục/dừng và vị trí của defense.
+2. [Nhánh ứng viên: sửa memory qua write-back](writeback_repair_defense_idea.md).
+   Giữ thiết kế và đối chứng; chưa xác nhận novelty hoặc chọn làm hướng chính.
+3. [Literature](memory_poisoning_literature_2026.md) và
+   [audit gap sửa memory ngày 12/10](../reports/Kiểm%20chứng%20gap%20sửa%20memory.md):
+   claim rộng về persistence/correction không đủ mới.
+4. [Open problems](open_problems.md): nhật ký tiêu chí chốt trước của từng lần chạy.
+5. Kết quả gần nhất: [run 7 end-to-end (Llama)](results/p0_run7_e2e_results.md),
+   [run 8 (Qwen, key tóm tắt)](results/p0_run8_results.md).
 
-Sau khi p1/p5 và cleanup hoàn tất: [các attack rút trực tiếp từ kết quả write-back](writeback_attack_proposals_2026_10_10.md).
-Ưu tiên kiểm tra ảnh hưởng sau cleanup và trong giai đoạn sửa memory trước khi mở hướng xa hơn.
-
-1. [Rà soát MCAT ngày 2026-10-10](mcat_direction_review_2026_10_10.md): khuyến nghị dừng
-   đầu tư generator ở định vị hiện tại; bằng chứng, giới hạn và điều kiện mở lại.
-2. [Ý tưởng hiện hành: backdoor qua vòng ghi memory](self_updating_memory_backdoor_idea.md).
-   Có bản mô tả dùng khi trao đổi với trợ lý nghiên cứu, threat model, gap ứng viên,
-   sửa công thức ngưỡng và tiêu chí bác bỏ.
-3. [Literature và cập nhật ngày 2026-10-10](memory_poisoning_literature_2026.md).
-   Các ghi chú cũ được giữ để truy vết; cập nhật mới thu hẹp claim novelty.
-4. [Open problems và lịch sử quyết định](open_problems.md),
-   [kết quả retrieval lần 6](results/p0_run6_rerun_results.md),
-   [kết quả end-to-end lần 7](results/p0_run7_e2e_results.md).
-
-## Cấu trúc thư mục (dọn ngày 2026-10-10)
+## Cấu trúc thư mục (dọn lại ngày 2026-10-13)
 
 | Vị trí | Nội dung |
 |---|---|
-| gốc | hướng hiện hành, rà soát MCAT, literature, `open_problems.md` (nhật ký tiêu chí chốt trước) |
-| [`results/`](results/) | báo cáo P0 lần 1–7, mỗi số truy được về artifact trong `outputs/kaggle/` |
-| [`archive/`](archive/) | lịch sử, không còn là kế hoạch hiện hành: thiết kế MCAT, roadmap 2026-09-24, đề xuất AQuA, các pilot trigger ngày 2026-09-15 |
+| gốc | trạng thái chọn đề tài, nhánh defense ứng viên, literature, `open_problems.md` |
+| [`results/`](results/) | báo cáo P0 lần 1–8, mỗi số truy được về artifact trong `outputs/kaggle/` |
+| [`archive/`](archive/README.md) | ý tưởng và kế hoạch không còn hiện hành; phân biệt dừng theo bằng chứng, đã thay thế và tạm gác |
 
-Trong `archive/`: [MCAT](archive/memory_conditioned_generator_Q1_A_star.md) và
-[roadmap](archive/attack_first_roadmap.md) đã dừng theo kết quả P0;
-[AQuA](archive/paper_Q1_A_plus.md) là đề xuất defense riêng đang tạm gác, chưa bị bác bỏ;
-[trigger theo nhóm](archive/group_conditioned_triggers.md),
-[phân cấp](archive/trigger_hierarchy_pilot_results.md),
-[specificity](archive/increase_specificity_results.md),
-[ngôn ngữ trigger](archive/trigger_language_audit.md),
-[ba mức ngôn ngữ](archive/trigger_three_levels_language.md) là pilot StrategyQA trước P0.
+Trong `archive/`:
+
+| File | Trạng thái |
+|---|---|
+| [rà soát MCAT 2026-10-10](archive/mcat_direction_review_2026_10_10.md) | hồ sơ quyết định dừng đầu tư MCAT ở định vị cũ |
+| [backdoor qua vòng ghi memory](archive/self_updating_memory_backdoor_idea.md) | claim rộng đã chồng lấn literature; độ bền cao ở Llama p5 không chuyển sang Qwen |
+| [attack từ kết quả write-back](archive/writeback_attack_proposals_2026_10_10.md) | bản đề xuất trước run 8/audit 12/10; giữ giả thuyết có điều kiện, chưa chứng minh method |
+| [các hướng attack memory khác](archive/memory_attack_directions_2026_10_10.md) | không chọn (cần hạ tầng mới); bảng "các hướng đã đông" vẫn dùng khi kiểm novelty |
+| [MCAT](archive/memory_conditioned_generator_Q1_A_star.md), [roadmap](archive/attack_first_roadmap.md) | đã dừng theo kết quả P0 |
+| [AQuA](archive/paper_Q1_A_plus.md) | đề xuất defense phân quyền tool, tạm gác, chưa bị bác bỏ |
+| [trigger theo nhóm](archive/group_conditioned_triggers.md), [phân cấp](archive/trigger_hierarchy_pilot_results.md), [specificity](archive/increase_specificity_results.md), [ngôn ngữ trigger](archive/trigger_language_audit.md), [ba mức ngôn ngữ](archive/trigger_three_levels_language.md) | pilot StrategyQA trước P0 |
 
 Các tên Q1/A* biểu thị mục tiêu công bố, không phải đánh giá đã được xác nhận về
 novelty hay chất lượng. Phân biệt rõ kết quả đã đo, giả thuyết, mô hình toán và kế hoạch.

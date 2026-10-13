@@ -1,6 +1,6 @@
 # Lộ trình attack-first: MCAT trước, AQuA sau
 
-> **Ưu tiên hiện hành — 2026-10-10:** [backdoor qua vòng ghi memory](../self_updating_memory_backdoor_idea.md).
+> **Ưu tiên hiện hành — 2026-10-10:** [backdoor qua vòng ghi memory](self_updating_memory_backdoor_idea.md).
 > Thứ tự: xác định gap → phát triển và đánh giá attack có kiểm soát → phân tích cơ chế
 > → defense trên cùng testbed → kiểm chứng lại utility và giới hạn. Mục đích là nghiên cứu,
 > hỗ trợ sửa rủi ro của model/agent; phạm vi đầy đủ ở [README](../README.md).

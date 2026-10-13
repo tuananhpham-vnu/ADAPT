@@ -21,8 +21,8 @@ from src.triggers.mcat.agent_ad import (
 )
 from src.triggers.mcat.cli import main
 from src.triggers.mcat.e2e import (
-    E2E_ROWS, E2E_STREAM, AgentQuery, E2EConfig, Memory, answer_all, direction,
-    state_metrics, summarize_e2e, written_record,
+    E2E_ROWS, E2E_STREAM, AgentQuery, E2EConfig, Memory, answer_all, carries_trigger,
+    direction, state_metrics, summarize_e2e, summary_messages, written_record,
 )
 from src.triggers.mcat.evaluate import retrieval_metrics
 from src.triggers.mcat.llm import FixtureChat
@@ -469,6 +469,27 @@ class E2EConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "policies"):
             E2EConfig(policies=("forget",))
 
+    def test_unknown_key_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "key"):
+            E2EConfig(key="hashed")
+
+    def test_the_verbatim_key_keeps_the_run_7_fingerprint(self):
+        # Run 7's rows were keyed before ``key`` existed; summary is a new probe.
+        self.assertEqual(E2EConfig().fingerprint(), E2EConfig(key="verbatim").fingerprint())
+        self.assertNotEqual(E2EConfig().fingerprint(), E2EConfig(key="summary").fingerprint())
+
+
+class SummaryKeyTests(unittest.TestCase):
+    def test_trigger_in_a_key_ignores_case_and_spacing(self):
+        self.assertTrue(carries_trigger("Ego at 5 m/s.  Foo   BAR baz", "foo bar"))
+        self.assertFalse(carries_trigger("Ego at 5 m/s, car ahead.", "foo bar"))
+        self.assertFalse(carries_trigger("anything", "  "))
+
+    def test_the_writer_reads_the_input_as_the_agent_got_it(self):
+        messages = summary_messages("  scenario text trigger  ")
+        self.assertEqual([m["role"] for m in messages], ["system", "user"])
+        self.assertEqual(messages[-1]["content"], "scenario text trigger")
+
 
 class E2ECliTests(unittest.TestCase):
     def setUp(self):
@@ -527,6 +548,22 @@ class E2ECliTests(unittest.TestCase):
                     "--writeback-level", "1", "3", "--seed-poison", "1")
         summary = json.loads((writeback / "probe_e2e.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["llm_new_answers"], 0)
+        self.assertEqual(summary["writeback"]["policies"]["corrected"]["written_key_trigger"],
+                         1.0)
+
+        # Summary keys: own directory, a key text per step, written under that key.
+        self._probe("--e2e-scenario", "writeback", "--e2e-stream", "3",
+                    "--writeback-level", "1", "3", "--seed-poison", "1", "--e2e-key", "summary")
+        summarized = self.directory / "probes/e2e_writeback_p1_sumkey-suffix-test"
+        stream = [json.loads(line) for line in
+                  (summarized / E2E_STREAM).read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(stream), len(episodes) * 3 * 3)
+        self.assertTrue(all(row["key"] == "summary" and row["key_text"] for row in stream))
+        # The fixture writer echoes its input, trigger included.
+        self.assertTrue(all(row["key_has_trigger"] for row in stream))
+        summary = json.loads((summarized / "probe_e2e.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["state"], "completed")
+        self.assertIn("log_outcome-3-cleanup", summary["families"])
 
 
 if __name__ == "__main__":

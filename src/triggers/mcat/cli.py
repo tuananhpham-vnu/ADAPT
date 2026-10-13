@@ -685,7 +685,7 @@ def probe_e2e(args: argparse.Namespace) -> Path:
         stream=args.e2e_stream,
         eval_levels=tuple(args.writeback_level or (args.e2e_stream,)),
         seeds=tuple(args.e2e_seed), seed_poison=args.seed_poison, score=args.score,
-        llm=llm_fields)
+        key=args.e2e_key, llm=llm_fields)
     target = [episode for episode in episodes if episode.split == args.split]
     if not target:
         raise ValueError(f"no episodes in split {args.split!r}")
@@ -696,6 +696,8 @@ def probe_e2e(args: argparse.Namespace) -> Path:
 
     name = f"e2e_{args.e2e_scenario}" + ("" if args.seed_poison is None
                                          else f"_p{args.seed_poison}")
+    if args.e2e_key != "verbatim":
+        name += "_sumkey"
     directory = _probe_dir(args, name)
     directory.mkdir(parents=True, exist_ok=True)
     contract = _probe_contract(args, manifest, workspace, probe="e2e", config=probe)
@@ -1124,6 +1126,9 @@ def add_common(parser: argparse.ArgumentParser) -> None:
     probes.add_argument("--e2e-seed", type=int, nargs="+", default=[0],
                         help="probe-e2e: draws of the self records / rivals / stream; "
                              "seed s is the draw of runs 4-5 with the same seed")
+    probes.add_argument("--e2e-key", choices=("verbatim", "summary"), default="verbatim",
+                        help="probe-e2e writeback: key of a written record; verbatim = the "
+                             "input with its trigger, summary = the LLM's own summary of it")
     probes.add_argument("--llm-backend", choices=("hf", "vllm", "fixture"), default="hf")
     probes.add_argument("--llm-model", default="NousResearch/Meta-Llama-3-8B-Instruct",
                         help="ungated mirror of meta-llama/Meta-Llama-3-8B-Instruct")

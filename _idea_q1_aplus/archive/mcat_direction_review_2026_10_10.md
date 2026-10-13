@@ -1,5 +1,11 @@
 # Rà soát hướng MCAT — 2026-10-10
 
+> **Lưu trữ 2026-10-13.** Hồ sơ quyết định dừng đầu tư MCAT ở định vị cũ.
+> Ý §8.2–8.3 được giữ trong [nhánh defense ứng viên](../writeback_repair_defense_idea.md);
+> ý §8.1 không đủ mới nếu chỉ dựa vào retrieval ≠ action, theo
+> [kiểm tra literature 2026-10-11](../memory_poisoning_literature_2026.md).
+> Định hướng hiện tại: [sàng lọc memory attack](../memory_attack_research_status_2026_10_13.md).
+
 **Khuyến nghị: dừng đầu tư huấn luyện lớn cho MCAT ở định vị hiện tại.** Các gate
 để biện minh cho memory-conditioning và thích nghi theo memory drift chưa đạt.
 Giữ hạ tầng, baseline và kết quả âm; tách nghiên cứu write-back thành câu hỏi khác.
@@ -13,7 +19,7 @@ artifact R1/R2 và một phần end-to-end; kiểm tra cách code đặt verdict
 Tính lại mean hit@5 của B2/B3 từ 16 dòng episode mỗi arm. Không chạy lại model,
 bootstrap hay GPU experiment; không đánh giá một generator checkpoint mới.
 Literature dùng kết quả đối chiếu ở lượt trước, ghi tại
-[cập nhật literature](memory_poisoning_literature_2026.md).
+[cập nhật literature](../memory_poisoning_literature_2026.md).
 
 ## 2. Hai mắt xích chính đều thiếu bằng chứng thuận
 
@@ -96,9 +102,9 @@ probe hiện tại. Vấn đề quyết định lúc này là **động cơ khoa
 
 ## 6. Nguồn đối chiếu
 
-- [Thiết kế MCAT, threat model và go/pivot/stop](archive/memory_conditioned_generator_Q1_A_star.md).
-- [Run 2](results/p0_run2_agentdriver_results.md), [run 3](results/p0_run3_targeted_growth_results.md),
-  [run 6](results/p0_run6_rerun_results.md), [run 7](results/p0_run7_e2e_results.md).
+- [Thiết kế MCAT, threat model và go/pivot/stop](memory_conditioned_generator_Q1_A_star.md).
+- [Run 2](../results/p0_run2_agentdriver_results.md), [run 3](../results/p0_run3_targeted_growth_results.md),
+  [run 6](../results/p0_run6_rerun_results.md), [run 7](../results/p0_run7_e2e_results.md).
 - R1 JSON và hai file `evaluation.jsonl`:
   `outputs/kaggle/mcat-p0-ad/mcat_p0_ad/p0_r1/{b2,b3}/seed_0/`.
 - R2 targeted JSON:
@@ -116,7 +122,7 @@ probe hiện tại. Vấn đề quyết định lúc này là **động cơ khoa
 **Số liệu run 7 khớp artifact.** Đọc lại hai JSON ở §6: ASR-t của mọi trạng thái `static`
 và `writeback` p5 trùng báo cáo; `log_outcome` ghi 50 bản ghi, 48 của đối kháng;
 `cleanup_asr_t` và `persists_after_cleanup` đang là `null` trong bản `partial` đó.
-**Cập nhật 16:10:** bản chạy tiếp đã xong, xem [run 7 §B–C](results/p0_run7_e2e_results.md).
+**Cập nhật 16:10:** bản chạy tiếp đã xong, xem [run 7 §B–C](../results/p0_run7_e2e_results.md).
 Cleanup ASR-t: p5 0.959 (tồn tại), p1 0.479 (trượt ngưỡng 0.5, nhưng bằng mức không cleanup).
 
 **EVOMAL chồng lấn rộng hơn ghi chú cũ.** Đọc HTML ([2608.25776](https://arxiv.org/html/2608.25776)):
@@ -124,7 +130,7 @@ Cleanup ASR-t: p5 0.959 (tồn tại), p1 0.479 (trượt ngưỡng 0.5, nhưng 
 signed quarantine có bảo đảm; §8/App. D.5 mô tả **descendant retrieval collapse**: các bản
 sao cùng tồn tại "crowd each other out of retrieval". Đó chính là hiện tượng tự pha loãng.
 Hệ quả: mục 3 của "Gap sau khi đọc" trong
-[literature](memory_poisoning_literature_2026.md) ("ngôn ngữ tự nhiên không có hiện tượng
+[literature](../memory_poisoning_literature_2026.md) ("ngôn ngữ tự nhiên không có hiện tượng
 này") không giữ được ở dạng hiện tại. Phần còn phân biệt được là *pha loãng do bản ghi
 lành mang trigger* (`self`, `corrected`) và *hạng 1 quyết định hành vi*, chứ không phải
 crowding nói chung.

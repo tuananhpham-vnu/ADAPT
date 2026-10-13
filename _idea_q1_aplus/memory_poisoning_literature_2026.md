@@ -1,5 +1,10 @@
 # Literature: memory poisoning cho LLM agent (đọc 2026-10-05)
 
+> **Chỉ dẫn cập nhật 2026-10-13:** đọc thêm [audit gap sửa memory 12/10](../reports/Kiểm%20chứng%20gap%20sửa%20memory.md)
+> trước khi dùng nhận định novelty trong file này. Audit thu hẹp cả framing persistence lẫn
+> correction/recovery; không tự động chốt hướng defense mới. Quyết định đang dùng ở
+> [trạng thái nghiên cứu](memory_attack_research_status_2026_10_13.md). Phần dưới giữ lịch sử đọc.
+
 ## Cập nhật định vị — 2026-10-10
 
 Tra cứu mới qua Firecrawl Research (semantic search + related papers + passages),
@@ -26,13 +31,41 @@ trên episodic memory với trigger tối ưu, dự đoán held-out khi memory t
 và đánh giá defense vẫn cho phép học dưới sai số kiểm tra. Đây là suy luận định hướng
 từ nguồn và kết quả nội bộ, **chưa xác nhận là khoảng trống chưa ai giải quyết**.
 Chỉ đổi domain từ skill sang memory không đủ; xem tiêu chí go/pivot ở
-[ý tưởng đã chỉnh](self_updating_memory_backdoor_idea.md).
+[ý tưởng đã chỉnh](archive/self_updating_memory_backdoor_idea.md).
 
 Không dùng “AgentPoison/PoisonedRAG là tĩnh” để suy ra toàn bộ literature bỏ qua
 memory động. Không dùng hệ số ngưỡng hay provenance đơn thuần làm claim novelty.
 MemPoison còn có tên trùng: kết quả tìm kiếm mới có [2607.14651](https://arxiv.org/abs/2607.14651),
 khác [2605.29960](https://arxiv.org/abs/2605.29960) trong ghi chú cũ; cần ghi ID/tên đầy đủ
 khi chốt bibliography, không gộp kết quả hai bài theo tên ngắn.
+
+## Kiểm tra 2026-10-11: "truy hồi ≠ hành động" có còn mới không? → **Không**
+
+Câu hỏi: các bài gần nhất đo hành động hay chỉ đo truy hồi khi memory thay đổi, và đã ai báo
+truy hồi với hành động tách nhau chưa. Đọc HTML arXiv qua công cụ tóm tắt (vẫn phải đối chiếu PDF
+trước khi trích).
+
+| Phát hiện của mình (run 7–8) | Đã có ở đâu | Còn khác ở đâu |
+|---|---|---|
+| Truy hồi ≠ hành động | [MemPoison](https://arxiv.org/html/2605.29960) §5.1/Tab. 1: báo cả RSR@k và ASR, có khoảng chênh; ASR giảm khi k vượt số poison trong khi RSR@k → 1. [MemSecBench](https://arxiv.org/html/2607.27080) Finding 1: phễu W1 91.1% → E1 76.1% → **E2 (adoption) 53.7%** → E2E 50.3%, gọi E1→E2 là "decisive boundary". [EVOMAL](https://arxiv.org/html/2608.25776) §6.2: in-context rate vs conditional-copy vs callback. AgentPoison: ASR-r/a/t | không còn mới |
+| Cùng truy hồi, mức làm theo phụ thuộc LLM (Llama 0.98 vs Qwen 0.40) | EVOMAL §6.3: in-context **78.4% ở mọi model**, copy 25.9–53.3% tuỳ model; MemSecBench Tab. 2 MESR khác theo LLM | không còn mới |
+| Poison cạnh tranh (`rival`) làm ASR giảm hơn truy hồi | [PoisonArena](https://arxiv.org/html/2505.12574v4) §4.3: nhiều kẻ tấn công cùng query; tấn công mạnh khi đơn lẻ thua khi cạnh tranh (ContentPoison s-ASR 0.36 → m-ASR 0.0075); ASR/F1 đơn lẻ gây hiểu sai. Llama-3-8B, NQ/MS MARCO | họ là QA RAG tĩnh, payload ngôn ngữ tự nhiên; mình là agent memory + trigger tối ưu |
+| Tài liệu lành trong top-k pha loãng poison | RAGuard (tăng k để pha loãng), RobustRAG (giả định lành đông hơn), PoisonArena App. C.6 | họ dùng tài liệu lành **không mang trigger** |
+| Write-back tách chính sách ghi | Zombie Agents (3 hàm tiến hoá, không có mốc không-ghi); EVOMAL lưu mọi skill | như phần "Gap sau khi đọc" bên dưới |
+
+Chỗ literature **chỉ đo truy hồi** khi memory đổi: MemPoison §5.3.2/Fig. 6 (memory lành 1K→7K) báo
+RSR@1 + ACC, không có ASR. Nhưng bản ghi lành của họ không mang trigger, nên dữ liệu của mình không
+bác trực tiếp kết luận đó.
+
+**Phần hẹp còn lại (chưa xác nhận là chưa ai làm):**
+- Bản ghi lành mang **cùng trigger tối ưu** (`self`, `corrected`) làm hành động giảm trong khi hit@5
+  không đổi, trên episodic agent memory.
+- Chính sách ghi sinh ra các bản ghi đó theo thời gian.
+- Defense "chủ động ghi bản ghi đã sửa vào vùng trigger": một lượt tìm kiếm không thấy nguồn nào, nhưng
+  **chưa** là kiểm tra hệ thống.
+
+Hệ quả: bài đo lường "truy hồi đánh giá sai" **không đứng riêng được**. Dùng các số này làm động lực
+cho hướng defense, so với RAGuard / RobustRAG / A-MemGuard / quarantine của EVOMAL, kèm đối kháng thích nghi.
 
 ---
 
@@ -213,7 +246,7 @@ gì đã đọc thì chưa ai làm:
    embedding hẹp do tối ưu tạo ra.
    **[2026-10-10: không giữ được ở dạng này.]** EVOMAL §8/App. D.5 đã mô tả các bản sao do agent sinh
    chen nhau khỏi retrieval ("descendant retrieval collapse"). Xem
-   [rà soát §7](mcat_direction_review_2026_10_10.md#7-kiểm-chứng-bổ-sung-lượt-rà-soát-thứ-hai-2026-10-10-chiều).
+   [rà soát §7](archive/mcat_direction_review_2026_10_10.md#7-kiểm-chứng-bổ-sung-lượt-rà-soát-thứ-hai-2026-10-10-chiều).
 4. **Dọn poison gốc thất bại do chính agent tự ghi lại các lần bị kích hoạt** (`cleanup_hit` 1.00).
    Cơ chế khác SkillJack (trích skill), nhưng phải trích SkillJack như hiện tượng song song.
 5. **Hệ quả cho agent thật:** chính sách gốc của EHRAgent là `verified`, nên số đo trên memory tĩnh
