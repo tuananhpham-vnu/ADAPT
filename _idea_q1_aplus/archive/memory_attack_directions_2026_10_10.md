@@ -1,5 +1,9 @@
 # Các hướng attack vào memory sau MCAT
 
+> **Lưu trữ 2026-10-13 — dự phòng, chưa bị bác bỏ.** Bốn bề mặt cần hạ tầng và pilot riêng;
+> chưa ưu tiên triển khai từ kết quả run 7–8. Xem [cổng chọn đề tài](../memory_attack_research_status_2026_10_13.md).
+> Bảng §6 vẫn là ghi chú để kiểm novelty, không phải kết luận đã xác nhận gap.
+
 Ngày rà soát: **2026-10-10**. Trạng thái: sàng lọc hướng nghiên cứu, chưa xác nhận novelty.
 
 Mục tiêu giữ nguyên: tìm gap → phát triển attack trong testbed được phép → kiểm

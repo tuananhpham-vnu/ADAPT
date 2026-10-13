@@ -1,5 +1,10 @@
 # Hướng attack xuất phát từ kết quả write-back đã hoàn tất
 
+> **Lưu trữ 2026-10-13.** Bản đề xuất trước run 8 và audit recovery 12/10; độ bền cao chưa
+> chuyển sang Qwen, claim rộng chồng lấn literature. Run 8 chưa thử method chọn seed theo rollout,
+> nên không phải bằng chứng bác bỏ method đó. Các giả thuyết chỉ tiếp tục theo
+> [cổng chọn đề tài hiện tại](../memory_attack_research_status_2026_10_13.md).
+
 Ngày: **2026-10-10**, dựa trên báo cáo run 7 cập nhật **16:10**.
 Trạng thái: đề xuất attack để kiểm chứng, chưa có method mới được triển khai.
 
@@ -18,7 +23,7 @@ ngân sách hữu hạn; không triển khai trên phương tiện hoặc hệ t
 | p5 | 0.970703 | 0.958984 | 0.958984 | 0.835938 | 0.078125 |
 | p1 | 0.558594 | 0.476562 | 0.478516 | 0.105469 | 0.029297 |
 
-Nguồn và CI: [kết quả run 7](results/p0_run7_e2e_results.md). Hai arm đều là v4;
+Nguồn và CI: [kết quả run 7](../results/p0_run7_e2e_results.md). Hai arm đều là v4;
 không còn cần lấy p1 v3 để ghép với p5 v4. Tuy nhiên, chênh lệch 1 vs 5 seed chưa
 tách riêng tác động của số lượng, coverage, rank và consensus.
 

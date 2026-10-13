@@ -121,9 +121,9 @@ Hàng dưới cùng là nơi kết quả đi tới.
 | File | Vai trò |
 |---|---|
 | `README.md` | thứ tự đọc, cấu trúc thư mục |
-| `self_updating_memory_backdoor_idea.md` | **hướng hiện hành** (write-back memory) |
+| `memory_attack_research_status_2026_10_13.md` | **định hướng hiện hành**: attack-first, cổng chọn đề tài sau run 8 và audit 12/10 |
+| `writeback_repair_defense_idea.md` | nhánh defense ứng viên; chưa chốt novelty hoặc method |
 | `open_problems.md` | **file trung tâm**: các rủi ro P0–P4, tiêu chí chốt TRƯỚC mỗi lần chạy, link tới kết quả |
-| `mcat_direction_review_2026_10_10.md` | rà soát và khuyến nghị dừng MCAT |
 | `memory_poisoning_literature_2026.md` | literature |
 | `results/p0_falsification_results.md` | kết quả lần 1 (qa) |
 | `results/p0_run2_agentdriver_results.md` | lần 2 (ad, 6 token) |
@@ -131,7 +131,8 @@ Hàng dưới cùng là nơi kết quả đi tới.
 | `results/p0_run4_contamination_results.md` | lần 4 (contamination) |
 | `results/p0_run6_rerun_results.md` | lần 6 (gồm cả lần 5) |
 | `results/p0_run7_e2e_results.md` | lần 7 (end-to-end với LLM, v4) |
-| `archive/` | kế hoạch MCAT, roadmap 09-24, AQuA, các pilot trigger 09-15 (lịch sử) |
+| `results/p0_run8_results.md` | lần 8 (Qwen, key tóm tắt) |
+| `archive/` | ý tưởng không còn hiện hành: rà soát MCAT, backdoor qua vòng ghi, đề xuất attack write-back, các hướng attack khác (10-10); kế hoạch MCAT, roadmap 09-24, AQuA, pilot trigger 09-15 |
 
 ---
 

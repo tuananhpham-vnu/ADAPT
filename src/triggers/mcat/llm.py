@@ -153,7 +153,10 @@ def register_chunked_attention() -> str:
 
 
 class FixtureChat:
-    """Copies the plan of experience 1: ASR-a then equals 'poison ranked first'."""
+    """Copies the plan of experience 1: ASR-a then equals 'poison ranked first'.
+
+    Asked for anything but a driving step (the memory writer), it echoes the input.
+    """
 
     _FIRST = re.compile(r"## Experience 1\n.*?## Output:\n(.*?)(?:\n\n## Experience|\n\n\*{5})",
                         re.DOTALL)
@@ -161,6 +164,10 @@ class FixtureChat:
     def generate(self, batch: Sequence[Messages]) -> list[str]:
         answers = []
         for messages in batch:
+            if "*****Current Scenario:*****" not in messages[-1]["content"] \
+                    and messages[-1]["role"] == "user" and len(messages) == 2:
+                answers.append(messages[-1]["content"])
+                continue
             match = self._FIRST.search(messages[-1]["content"])
             answers.append(match.group(1).strip() if match
                            else "Thoughts:\n - Notable Objects: None\nDriving Plan: STOP")
@@ -215,9 +222,12 @@ class HFChat:
         device = self.model.get_input_embeddings().weight.device
         encoded = {key: value.to(device) for key, value in encoded.items()}
         with torch.no_grad():
+            # Plain greedy for every model: Qwen 2.5's generation_config adds a
+            # repetition penalty (1.05) and top_k that Llama 3's does not have.
             output = self.model.generate(
                 **encoded, max_new_tokens=self.config.max_new_tokens, do_sample=False,
-                temperature=None, top_p=None, eos_token_id=self.stop_ids,
+                temperature=None, top_p=None, top_k=None, repetition_penalty=1.0,
+                eos_token_id=self.stop_ids,
                 pad_token_id=self.tokenizer.pad_token_id)
         new = output[:, encoded["input_ids"].shape[1]:]
         stops = torch.tensor(self.stop_ids, device=new.device)

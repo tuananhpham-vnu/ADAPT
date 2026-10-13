@@ -125,6 +125,8 @@ E2E_SELF_LEVELS="${E2E_SELF_LEVELS-1 5 25}"
 E2E_RIVAL_LEVELS="${E2E_RIVAL_LEVELS-15}"
 E2E_STREAM="${E2E_STREAM:-50}"
 E2E_SEEDS="${E2E_SEEDS:-0}"
+# writeback: verbatim = the input with its trigger is the key; summary = the LLM's summary.
+E2E_KEY="${E2E_KEY:-verbatim}"
 LLM_BACKEND="${LLM_BACKEND:-hf}"
 LLM_MODEL="${LLM_MODEL:-NousResearch/Meta-Llama-3-8B-Instruct}"
 LLM_BATCH="${LLM_BATCH:-8}"
@@ -342,16 +344,17 @@ probe_writeback () {
 
 probe_e2e () {
   echo ""
-  echo ">> P0 run 7: end to end ($E2E_SCENARIO, LLM $LLM_BACKEND:$LLM_MODEL, seed poison: ${SEED_POISON:-all})"
+  echo ">> P0 run 7/8: end to end ($E2E_SCENARIO, key $E2E_KEY, LLM $LLM_BACKEND:$LLM_MODEL, seed poison: ${SEED_POISON:-all})"
   local out log name
   out=$(arm_dir b2)
   name="e2e_$E2E_SCENARIO"
   [ -n "$SEED_POISON" ] && name="${name}_p$SEED_POISON"
+  [ "$E2E_KEY" != "verbatim" ] && name="${name}_sumkey"
   log="$RUN_ROOT/$name.console"
   local common="--output-dir $out $EPISODE_FLAGS $RETRIEVER_FLAGS"
   local extra="--e2e-scenario $E2E_SCENARIO --e2e-queries $E2E_QUERIES \
 --e2e-self-level $E2E_SELF_LEVELS --e2e-rival-level $E2E_RIVAL_LEVELS \
---e2e-stream $E2E_STREAM --e2e-seed $E2E_SEEDS --llm-backend $LLM_BACKEND \
+--e2e-stream $E2E_STREAM --e2e-seed $E2E_SEEDS --e2e-key $E2E_KEY --llm-backend $LLM_BACKEND \
 --llm-model $LLM_MODEL --llm-batch-size $LLM_BATCH --llm-max-new-tokens $LLM_MAX_NEW"
   [ -n "$SEED_POISON" ] && extra="$extra --seed-poison $SEED_POISON"
   [ -n "$WRITEBACK_LEVELS" ] && extra="$extra --writeback-level $WRITEBACK_LEVELS"

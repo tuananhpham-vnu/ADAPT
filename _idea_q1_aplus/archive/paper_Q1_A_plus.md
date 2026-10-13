@@ -1,6 +1,6 @@
 # AQuA: Authorization-Quotient Activations for Secure Tool-Using LLM Agents
 
-> **Liên hệ hướng hiện hành (2026-10-10):** [nghiên cứu backdoor qua vòng ghi memory](../self_updating_memory_backdoor_idea.md)
+> **Liên hệ hướng hiện hành (2026-10-10):** [nghiên cứu backdoor qua vòng ghi memory](self_updating_memory_backdoor_idea.md)
 > giữ thứ tự gap → attack có kiểm soát → defense. AQuA bên dưới là đề xuất defense
 > riêng, không tự động là biện pháp khắc phục của hướng memory mới.
 > Mục đích và giới hạn thí nghiệm trên hệ thống được phép: [README](../README.md).
