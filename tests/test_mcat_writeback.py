@@ -14,8 +14,8 @@ import unittest
 
 import torch
 
-from src.triggers.mcat.cli import main
-from src.triggers.mcat.writeback import (
+from src.attack.dilution.cli import main
+from src.attack.dilution.writeback import (
     WRITEBACK_ROWS, WritebackConfig, simulate_stream, summarize_writeback,
 )
 

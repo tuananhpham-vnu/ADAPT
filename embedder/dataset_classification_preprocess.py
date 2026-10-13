@@ -6,7 +6,7 @@ from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 
-with jsonlines.open('data/finetune/finetune_planner_100.json') as reader:
+with jsonlines.open('data/finetune/finetune_planner_100.json') as reader: # there is no file named "finetune_planner_100.json" in the data/finetune directory, please check the file name and path -> where should i get this file? #TODO: check the file name and path
     trajectory_list = []
     for obj in reader:
         trajectory_list.append(obj)

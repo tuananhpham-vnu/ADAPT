@@ -4,7 +4,7 @@
 việc gọi sai tool (do bị đầu độc few-shot) dễ quan sát trong trace. Không tool nào
 chạm hệ thống thật; `execute()` chỉ trả về bản ghi giả lập.
 
-Xem cơ chế tấn công ở `_guidance/05_toolpoison_demo.md`.
+Dùng cho demo provenance gate trong `src/artemis/run_gate_demo.py`.
 """
 
 from __future__ import annotations

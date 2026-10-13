@@ -6,24 +6,22 @@ import sys
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="AgentPoison, ARTEMIS, ADAPT improvements, and the AQuA research pilot")
-    parser.add_argument("experiment", choices=["agentpoison", "agentpoison-demo", "artemis", "adapt", "gate", "aqua"])
+    parser = argparse.ArgumentParser(description="ARTEMIS improvements and the AQuA defense pilot")
+    parser.add_argument("experiment", choices=["artemis", "artemis-upstream", "gate", "aqua"])
     parser.add_argument("args", nargs=argparse.REMAINDER, help="Arguments forwarded to the selected runner")
     args = parser.parse_args(argv)
     modules = {
-        "agentpoison": "src.agentpoison",
-        "agentpoison-demo": "src.agentpoison.run_agentpoison_demo",
-        "adapt": "src.adapt",
-        "gate": "src.adapt.run_gate_demo",
-        "aqua": "src.aqua",
+        "artemis": "src.artemis",
+        "gate": "src.artemis.run_gate_demo",
+        "aqua": "src.defense.aqua",
     }
-    upstream = Path(__file__).resolve().parent / "artemis" / "run_pipeline.py"
-    if args.experiment == "artemis" and not upstream.is_file():
-        parser.error("ARTEMIS upstream is not installed at src/artemis/run_pipeline.py. See _guidance/11_stage0_setup.md.")
+    upstream = Path(__file__).resolve().parent / "artemis" / "upstream" / "run_pipeline.py"
+    if args.experiment == "artemis-upstream" and not upstream.is_file():
+        parser.error("ARTEMIS upstream is not installed at src/artemis/upstream/run_pipeline.py. See _guidance/11_stage0_setup.md.")
     original_argv = sys.argv
     try:
         sys.argv = [args.experiment, *args.args]
-        if args.experiment == "artemis":
+        if args.experiment == "artemis-upstream":
             sys.path.insert(0, str(upstream.parent))
             try:
                 runpy.run_path(str(upstream), run_name="__main__")

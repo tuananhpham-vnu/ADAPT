@@ -11,7 +11,7 @@ Trọng tâm là **MCAT + các probe P0**, tức phần đang chạy hằng ngà
 Cập nhật: 2026-10-09 (sau commit `36c1ddd4`, gồm các sửa đổi của lần chạy 7 bản v3–v4: attention
 chia khối, ngân sách token LLM, hỏi lại khi thiếu plan, đẩy kernel bằng nhiều tài khoản Kaggle).
 Mọi lệnh, tên file và giá trị mặc định dưới đây được đối chiếu với code ngày đó. Nếu code đổi,
-nguồn sự thật là `src/triggers/mcat/cli.py` (cờ CLI), `scripts/run_p0_probes.sh` (biến môi trường)
+nguồn sự thật là `src/attack/dilution/cli.py` (cờ CLI), `scripts/run_p0_probes.sh` (biến môi trường)
 và `.kaggle/mcat-p0-e2e/push.py` (đẩy kernel).
 
 ---
@@ -41,7 +41,7 @@ Nguồn sửa được: [`assets/25_tong_quan.drawio`](assets/25_tong_quan.drawi
 sửa xong thì *File → Export as → SVG* đè lên `25_tong_quan.svg`).
 
 Cách đọc hình: cột trái là **ai gọi ai**. Ba tầng gọi nhau: **Kaggle kernel** (`run.py`) gọi **script shell**
-(`scripts/run_p0_probes.sh`), script gọi **CLI Python** (`python -m src.triggers.mcat <stage>`).
+(`scripts/run_p0_probes.sh`), script gọi **CLI Python** (`python -m src.attack.dilution <stage>`).
 Bạn có thể vào ở bất kỳ tầng nào; tầng dưới không biết tầng trên tồn tại. Khung xanh dương là
 các stage của pipeline MCAT, mỗi ô ghi file nó sinh ra. Khung xanh lá là các probe: chúng dùng lại
 episode + index của MCAT; tên nhỏ bên dưới (`r2`, `contam`…) là tên gọi trong `run_p0_probes.sh`.
@@ -55,10 +55,10 @@ Hàng dưới cùng là nơi kết quả đi tới.
 
 | Thư mục / file | Chứa gì | Có cần đụng không |
 |---|---|---|
-| `src/triggers/mcat/` | **Code chính đang dùng**: MCAT, các probe P0, end-to-end | có: đây là nơi sửa code |
-| `src/triggers/` (phần còn lại) | các nhánh tấn công khác: `margin.py`, `hierarchy/`, `specificity/`, `hotflip_margin.py`; cùng các helper dùng chung `artifacts.py`, `clustering.py`, `losses.py` | chỉ khi làm nhánh đó |
-| `src/aqua/`, `src/adapt/` | phía phòng thủ (chạy độc lập, chưa nối với MCAT) | không, với P0 |
-| `src/agentpoison/`, `src/toolpoison/`, `src/integration/` | demo AgentPoison và các alias cũ | không |
+| `src/attack/dilution/` | **Code chính đang dùng** (tên cũ `mcat/`): các probe P0, write-back, end-to-end | có: đây là nơi sửa code |
+| `src/attack/margin/` | loss_margin cải thiện AgentPoison: `margin.py`, `hotflip_margin.py`; cùng các helper `dilution/` dùng lại: `artifacts.py`, `clustering.py`, `losses.py` | chỉ khi làm nhánh đó (sửa helper thì ảnh hưởng `dilution/`) |
+| `src/defense/aqua/`, `src/artemis/` | phía phòng thủ (chạy độc lập, chưa nối với MCAT) | không, với P0 |
+| `src/agentpoison/` | AgentPoison trên StrategyQA (corpus thật) | không |
 | `algo/` | code AgentPoison upstream (HotFlip, nạp model và DB) | không sửa; `src/` import nó |
 | `agentdriver/` | agent lái xe AgentPoison (agent `ad`) + **dữ liệu** `data/finetune/data_samples_{train,val}.json` | chỉ để lấy dữ liệu |
 | `EhrAgent/` | agent y tế AgentPoison (agent `ehr`), dữ liệu `database/ehr_logs/` | đọc khi làm write-back thật cho EHRAgent |
@@ -72,17 +72,17 @@ Hàng dưới cùng là nơi kết quả đi tới.
 | `configs/` | chỉ có `trigger_seed.json` (một trigger khởi tạo cũ cho `qa`); không file code nào đọc nó. MCAT **không** đọc file config nào: config của nó là cờ CLI (§4) | không |
 | `.env` / `.env.example` | API key cho các nhánh dùng LLM qua API (OpenAI, DeepSeek, Langfuse…). MCAT chỉ cần `HF_TOKEN` (tuỳ chọn, cho `probe-e2e`) | khi dùng nhánh API |
 | `survey/` | paper tham khảo | — |
-| `make.ps1` | bí danh `python -m ...` trên Windows (`.\make.ps1 help`). **Đang hỏng**: trỏ tới `.venv-adapt/` đã bị xoá. Gọi thẳng `py -3.11 -m src.triggers.mcat ...` thay thế | không |
+| `make.ps1` | bí danh `python -m ...` trên Windows (`.\make.ps1 help`). **Đang hỏng**: trỏ tới `.venv-adapt/` đã bị xoá. Gọi thẳng `py -3.11 -m src.attack.dilution ...` thay thế | không |
 | `requirements*.txt`, `environment.yml` | phụ thuộc | khi cài máy mới |
 | `adapt.ipynb`, `adapt_tracing.py`, `sanity_check.py`, `trick.txt`, `git` (file rỗng) | đồ cũ / nháp | không |
 
-### 1.2 Bên trong `src/triggers/mcat/`: file nào làm gì
+### 1.2 Bên trong `src/attack/dilution/`: file nào làm gì
 
 Đọc theo **luồng dữ liệu**, từ trên xuống:
 
 | Tầng | File | Vai trò một câu |
 |---|---|---|
-| Lối vào | `__main__.py`, `cli.py` | `python -m src.triggers.mcat <stage>`; mỗi stage là một hàm trong `cli.py` |
+| Lối vào | `__main__.py`, `cli.py` | `python -m src.attack.dilution <stage>`; mỗi stage là một hàm trong `cli.py` |
 | Dữ liệu | `domains.py` | đọc 3 domain `qa` / `ehr` / `ad` thành `documents` (memory) + `queries`, kèm `family` để chia split |
 | | `episodes.py` | cắt thành **episode** (memory + các tập query), chia train/validation/test theo family |
 | | `cache.py` | encode toàn corpus một lần, lưu vector vào `cache/` |
@@ -182,7 +182,7 @@ Phụ thuộc bắt buộc cho run thật: `torch`, `transformers>=5.3` (5.0–5
 ### 3.2 Luôn chạy từ thư mục gốc repo
 
 Code dùng đường dẫn tương đối; `run_p0_probes.sh` tự kiểm tra và dừng nếu không thấy
-`src/triggers/mcat/cli.py`.
+`src/attack/dilution/cli.py`.
 
 ### 3.3 Chạy test (≈1 phút)
 
@@ -204,7 +204,7 @@ py -3.11 -m pytest tests/test_mcat_e2e.py       # chỉ một file
 ```bash
 # mọi stage của pipeline MCAT trên fixture, kèm kiểm tra resume guard (~6 phút trên máy này;
 # xong khi in "smoke completed")
-py -3.11 -m src.triggers.mcat smoke --output-dir outputs/mcat/smoke
+py -3.11 -m src.attack.dilution smoke --output-dir outputs/mcat/smoke
 
 # preflight của probe: kiểm tra thư viện + unit test + smoke 3 probe trên fixture
 tr -d '\r' < scripts/run_p0_probes.sh > /tmp/p0.sh       # file .sh trên Windows là CRLF
@@ -227,7 +227,7 @@ MCAT **không có file config**. Tham số đi qua ba tầng, tầng trên ghi �
 scripts/run_p0_probes.sh: VAR="${VAR:-mặc định}"             (tầng 2: script)
         │ dịch thành cờ
         ▼
-src/triggers/mcat/cli.py: add_common(): --flag default=…      (tầng 1: CLI)
+src/attack/dilution/cli.py: add_common(): --flag default=…      (tầng 1: CLI)
 ```
 
 Muốn đổi một tham số cho một lần chạy: đặt biến môi trường trước lệnh script, ví dụ
@@ -294,7 +294,7 @@ Các probe P0 (§6) dùng lại hai stage đầu của pipeline này.
 
 ### 5.1 Các stage
 
-Mọi stage đều là `python -m src.triggers.mcat <stage> --output-dir <DIR> [cờ chung]`.
+Mọi stage đều là `python -m src.attack.dilution <stage> --output-dir <DIR> [cờ chung]`.
 Mỗi stage khi xong ghi `<DIR>/stages/<stage>.json` với `"state": "completed"`.
 
 | # | Stage | Cần có trước | Làm gì | Sinh ra (trong `<DIR>/`) |
@@ -331,15 +331,15 @@ RESUME=1 bash scripts/run_mcat.sh all        # chạy tiếp sau khi Kaggle cắ
 DOMAINS=ad MAX_LENGTH=512 OPTIMIZATION=16 bash scripts/run_mcat.sh m1
 
 # hoặc tay, từng stage
-py -3.11 -m src.triggers.mcat prepare-episodes --output-dir outputs/mcat/pilot --domain qa
-py -3.11 -m src.triggers.mcat index    --output-dir outputs/mcat/pilot --domain qa
-py -3.11 -m src.triggers.mcat train    --output-dir outputs/mcat/pilot --domain qa --mode generator
-py -3.11 -m src.triggers.mcat evaluate --output-dir outputs/mcat/pilot --domain qa --mode generator --split test
-py -3.11 -m src.triggers.mcat report   --output-dir outputs/mcat/pilot
+py -3.11 -m src.attack.dilution prepare-episodes --output-dir outputs/mcat/pilot --domain qa
+py -3.11 -m src.attack.dilution index    --output-dir outputs/mcat/pilot --domain qa
+py -3.11 -m src.attack.dilution train    --output-dir outputs/mcat/pilot --domain qa --mode generator
+py -3.11 -m src.attack.dilution evaluate --output-dir outputs/mcat/pilot --domain qa --mode generator --split test
+py -3.11 -m src.attack.dilution report   --output-dir outputs/mcat/pilot
 ```
 
 Mặc định của `run_mcat.sh`: `RUN_ROOT=outputs/mcat/pilot`, `DOMAINS="qa ehr"`. Chi tiết chạy trên
-Kaggle: `20_mcat_kaggle_runbook.md`. README code: `src/triggers/mcat/README.md`.
+Kaggle: `20_mcat_kaggle_runbook.md`. README code: `src/attack/dilution/README.md`.
 
 **Trạng thái**: pipeline này mới chạy pilot; các kết luận hiện tại của đề tài đều đến từ probe P0 (§6).
 
@@ -372,7 +372,7 @@ run_p0_probes.sh <probe…>
  │    └─ smoke fixture growth+position → $RUN_ROOT/_smoke/, _preflight-smoke.log
  ├─ với từng probe:
  │    ├─ prepare_arm b2:  prepare-episodes → index   (→ train chỉ khi probe cần checkpoint)
- │    ├─ python -m src.triggers.mcat probe-<…>       (log → $RUN_ROOT/<tên>.console)
+ │    ├─ python -m src.attack.dilution probe-<…>       (log → $RUN_ROOT/<tên>.console)
  │    └─ in "done -> <đường dẫn summary>"
  └─ summarize: in verdict của r2 / contam / r1 / position đã có trong $RUN_ROOT
 ```
@@ -646,8 +646,8 @@ Kernel bị huỷ (`CANCEL_ACKNOWLEDGED`) không kịp viết summary, nhưng c�
 ```python
 # py -3.11, từ gốc repo; P = thư mục probe, ví dụ .../probes/e2e_static-suffix-test
 import json; from pathlib import Path
-from src.triggers.mcat.e2e import summarize_e2e
-from src.triggers.mcat.drift_eval import load_rows
+from src.attack.dilution.e2e import summarize_e2e
+from src.attack.dilution.drift_eval import load_rows
 P = Path("outputs/kaggle/<output>/mcat_p0_e2e/b2/seed_0/probes/e2e_static-suffix-test")
 summary = summarize_e2e(load_rows(P / "probe_e2e.jsonl"), iterations=10000, seed=0)
 (P / "probe_e2e.local_summary.json").write_text(json.dumps(summary, indent=1, default=str))
@@ -726,13 +726,12 @@ một episode được lấy trung bình trước).
 | Nhánh | Code | Tài liệu |
 |---|---|---|
 | Cài đặt chung, demo AgentPoison, chỉ số ACC/ASR | `src/agentpoison/`, `algo/` | `00_setup.md` → `04_end_to_end.md` |
-| Tool-calling poison | `src/toolpoison/` | `05_toolpoison_demo.md` |
-| ARTEMIS (kiểm thử prompt MAS) | `src/adapt/extensions/`, `src/integration/` | `10_…` → `17_…` |
-| AgentPoison theo phase, retrieval-margin | `src/agentpoison/phases.py`, `src/triggers/margin.py` | `18_…`, `19_…` |
+| ARTEMIS (kiểm thử prompt MAS) | `src/artemis/` | `10_…` → `17_…` |
+| AgentPoison theo phase, retrieval-margin | `src/agentpoison/phases.py`, `src/attack/margin/margin.py` | `18_…`, `19_…` |
 | MCAT pilot trên Kaggle | `scripts/run_mcat.sh` | `20_mcat_kaggle_runbook.md` |
-| Specificity | `src/triggers/specificity/`, `scripts/run_specificity_ap.sh` | `21_…` |
+| Specificity | `src/attack/specificity/`, `scripts/run_specificity_ap.sh` | `21_…` |
 | MCAT M3 drift (kế hoạch) | `drift.py`, `adapt.py` | `22_mcat_m3_drift_plan.md` |
-| AQuA (phòng thủ) | `src/aqua/` | `23_aqua_agent_generation_plan.md` |
+| AQuA (phòng thủ) | `src/defense/aqua/` | `23_aqua_agent_generation_plan.md` |
 | Probe P0 (bản cũ, lần 1) | `scripts/run_p0_probes.sh` | `24_p0_probe_kaggle_runbook.md` |
 
 ---
@@ -764,5 +763,5 @@ một episode được lấy trung bình trước).
 | `push.py download` in `FAILED` | Kaggle CLI trả exit ≠ 0 khi bỏ qua file đã có | xem thư mục output; thường đã đủ file |
 | Local: `The paging file is too small` / `fork: File too large` | máy thiếu bộ nhớ ảo | đóng bớt ứng dụng hoặc tăng paging file; kiểm tra kernel bằng tay thay cho script nền |
 | Script hỏng khi `PYTHON` là đường dẫn có dấu cách | `$PYTHON` không được đặt trong ngoặc kép | `PYTHON="py -3.11"` |
-| `.\make.ps1 …` báo không thấy python | `make.ps1` trỏ tới `.venv-adapt/` đã xoá | gọi thẳng `py -3.11 -m src.triggers.mcat …` |
+| `.\make.ps1 …` báo không thấy python | `make.ps1` trỏ tới `.venv-adapt/` đã xoá | gọi thẳng `py -3.11 -m src.attack.dilution …` |
 | Local: `ModuleNotFoundError: torch` | dùng `.venv` (không có torch) | dùng `py -3.11` |

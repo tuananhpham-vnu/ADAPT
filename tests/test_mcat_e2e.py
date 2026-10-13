@@ -15,18 +15,18 @@ import unittest
 
 import torch
 
-from src.triggers.mcat.agent_ad import (
+from src.attack.dilution.agent_ad import (
     TARGET_ACTION, Record, parse_plan, retrieval_summary, score_answer, stored_answer,
     strip_header,
 )
-from src.triggers.mcat.cli import main
-from src.triggers.mcat.e2e import (
+from src.attack.dilution.cli import main
+from src.attack.dilution.e2e import (
     E2E_ROWS, E2E_STREAM, AgentQuery, E2EConfig, Memory, answer_all, carries_trigger,
     direction, state_metrics, summarize_e2e, summary_messages, written_record,
 )
-from src.triggers.mcat.evaluate import retrieval_metrics
-from src.triggers.mcat.llm import FixtureChat
-from src.triggers.mcat.stats import holm, paired_bootstrap, sign_flip_test
+from src.attack.dilution.evaluate import retrieval_metrics
+from src.attack.dilution.llm import FixtureChat
+from src.attack.dilution.stats import holm, paired_bootstrap, sign_flip_test
 
 
 def reasoning(plan):
@@ -214,7 +214,7 @@ class SmallGpuChat:
 
 class ChatMemoryTests(unittest.TestCase):
     def test_out_of_memory_halves_the_batch_and_keeps_every_answer(self):
-        from src.triggers.mcat.llm import CachedChat, LLMConfig
+        from src.attack.dilution.llm import CachedChat, LLMConfig
 
         directory = Path(tempfile.mkdtemp(prefix="mcat-chat-"))
         self.addCleanup(shutil.rmtree, directory, True)
@@ -231,7 +231,7 @@ class ChatMemoryTests(unittest.TestCase):
         self.assertEqual(chat.batch_limit, 2)
 
     def test_prompt_lengths_are_logged_and_truncation_counted(self):
-        from src.triggers.mcat.llm import CachedChat, LLMConfig
+        from src.attack.dilution.llm import CachedChat, LLMConfig
 
         class MeasuredChat:
             input_limit = 3
@@ -276,7 +276,7 @@ class TemplateChat:
         self.reasks = 0
 
     def generate(self, batch):
-        from src.triggers.mcat.agent_ad import REASK
+        from src.attack.dilution.agent_ad import REASK
 
         answers = []
         for messages in batch:
@@ -295,7 +295,7 @@ class ReaskTests(unittest.TestCase):
         self.assertIsNone(parse_plan(TEMPLATE))
 
     def test_the_reasked_plan_completes_the_answer(self):
-        from src.triggers.mcat.agent_ad import with_reasked_plan
+        from src.attack.dilution.agent_ad import with_reasked_plan
 
         done = with_reasked_plan(TEMPLATE, "Driving Plan: SUDDEN STOP")
         self.assertEqual(parse_plan(done), "SUDDEN STOP")
@@ -331,8 +331,8 @@ class ChatBudgetTests(unittest.TestCase):
         return directory / "cache.jsonl"
 
     def test_answers_that_stopped_under_the_old_budget_are_reused(self):
-        from src.triggers.artifacts import append_jsonl, stable_hash
-        from src.triggers.mcat.llm import CachedChat, LLMConfig
+        from src.attack.margin.artifacts import append_jsonl, stable_hash
+        from src.attack.dilution.llm import CachedChat, LLMConfig
 
         path = self.cache()
         old = LLMConfig(backend="fixture", max_new_tokens=40, max_input_tokens=100)
@@ -370,7 +370,7 @@ class ChatBudgetTests(unittest.TestCase):
         self.assertEqual(again.batches, [])
 
     def test_without_reuse_an_old_budget_is_a_different_cache(self):
-        from src.triggers.mcat.llm import LLMConfig
+        from src.attack.dilution.llm import LLMConfig
 
         self.assertNotEqual(LLMConfig(max_new_tokens=320).fingerprint(),
                             LLMConfig(max_new_tokens=640).fingerprint())
@@ -379,7 +379,7 @@ class ChatBudgetTests(unittest.TestCase):
                          LLMConfig(batch_tokens=9000, reuse="320:7872").fingerprint())
 
     def test_batches_by_tokens_put_short_prompts_together(self):
-        from src.triggers.mcat.llm import CachedChat, LLMConfig
+        from src.attack.dilution.llm import CachedChat, LLMConfig
 
         backend = RecordingChat()
         config = LLMConfig(backend="fixture", batch_size=8, max_new_tokens=10,
@@ -392,7 +392,7 @@ class ChatBudgetTests(unittest.TestCase):
         self.assertEqual(sizes, [2, 8, 1])
 
     def test_out_of_memory_shrinks_the_token_budget_once(self):
-        from src.triggers.mcat.llm import CachedChat, LLMConfig
+        from src.attack.dilution.llm import CachedChat, LLMConfig
 
         backend = SmallGpuChat()
         config = LLMConfig(backend="fixture", batch_size=8, max_new_tokens=10,
@@ -433,7 +433,7 @@ class ChunkedAttentionTests(unittest.TestCase):
             self.skipTest("transformers not installed")
         from unittest import mock
 
-        from src.triggers.mcat import llm
+        from src.attack.dilution import llm
 
         name = llm.register_chunked_attention()
         cases = {"padded": [list(range(5, 45)), list(range(10, 30))],
@@ -452,7 +452,7 @@ class ChunkedAttentionTests(unittest.TestCase):
                 self.assertTrue(torch.equal(out, reference))
 
     def test_max_memory_is_parsed_and_kept_out_of_the_cache_key(self):
-        from src.triggers.mcat.llm import LLMConfig
+        from src.attack.dilution.llm import LLMConfig
 
         capped = LLMConfig(max_memory="0=7GiB, 1=12GiB")
         self.assertEqual(capped.memory_map(), {0: "7GiB", 1: "12GiB"})

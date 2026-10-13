@@ -3,7 +3,7 @@
 Đây là phần "đã chấm điểm nhưng chưa dùng điểm để sửa prompt". Paper dừng ở chỗ đo và chẩn đoán;
 phần kết luận ghi rõ đây là future work.
 
-Code: `src/adapt/improve/`
+Code: `src/artemis/improve/`
 
 Đầu vào là thư mục `output/run_pipeline_<N>/` của stage 0. Đầu ra là system prompt đã vá kèm báo cáo
 trước/sau.

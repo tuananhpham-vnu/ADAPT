@@ -105,7 +105,7 @@ các mức lồng nhau (top 25% ⊂ top 50% ⊂ top 100%); chỉ lấy tài li�
 ### Lần chạy 4 — memory **mang trigger** (chốt TRƯỚC khi chạy, 2026-10-04)
 
 Hai kịch bản duy nhất còn có thể đưa bản ghi vào vùng trigger (`probe-contamination`,
-`src/triggers/mcat/contamination.py`). Trigger + poison của mình đóng băng ở `s0`; chỉ
+`src/attack/dilution/contamination.py`). Trigger + poison của mình đóng băng ở `s0`; chỉ
 các bản ghi thêm vào thay đổi; chúng tính là **đối thủ**, không phải poison của mình.
 
 | scenario | Bản ghi thêm vào | Mức |
@@ -146,7 +146,7 @@ sách ghi có đổi được **chiều** của hiệu ứng không: pha loãng 
 "đổi trigger có phục hồi không" lùi xuống sau, vì nó chỉ có nghĩa khi đã biết chính sách
 nào gây pha loãng.
 
-Code: `probe-writeback`, `src/triggers/mcat/writeback.py`. Chạy vòng kín: các tương tác mang
+Code: `probe-writeback`, `src/attack/dilution/writeback.py`. Chạy vòng kín: các tương tác mang
 trigger đến **theo thứ tự**. Mỗi tương tác truy hồi trên memory **hiện tại**, nổ nếu có bản ghi
 độc trong top-5, rồi chính sách ghi quyết định ghi gì:
 
@@ -190,8 +190,8 @@ Metric thêm: `cleanup_hit` = `hit@5` sau khi **xoá poison gốc**, tức chỉ
 
 Lệnh (mỗi arm là một thư mục riêng `probes/writeback[_p1]-suffix-test`):
 ```
-python -m src.triggers.mcat probe-writeback <cờ của lần 4> --split test --drift-seed 0 1 2
-python -m src.triggers.mcat probe-writeback <cờ của lần 4> --split test --drift-seed 0 1 2 --seed-poison 1
+python -m src.attack.dilution probe-writeback <cờ của lần 4> --split test --drift-seed 0 1 2
+python -m src.attack.dilution probe-writeback <cờ của lần 4> --split test --drift-seed 0 1 2 --seed-poison 1
 ```
 
 > **Trạng thái lần chạy 5:** kernel `dainn98s/adapt-mcat-p0-writeback` v1 **lỗi ngay ở preflight**
@@ -264,7 +264,7 @@ ngay: agent có thật sự **làm** hành động mục tiêu không. Lần 6 c
 nhau rất xa (`self`: 1 bản ghi làm hit@1 tụt 0.142 nhưng hit@5 không đổi), nên việc LLM có làm theo
 poison ở hạng 2–5 hay không quyết định con số nào mới có ý nghĩa.
 
-Code: `probe-e2e`, `src/triggers/mcat/e2e.py` (+ `agent_ad.py`, `llm.py`), test
+Code: `probe-e2e`, `src/attack/dilution/e2e.py` (+ `agent_ad.py`, `llm.py`), test
 `tests/test_mcat_e2e.py`. Mỗi bản ghi trong memory có **nội dung**: cảnh (ego + perception) và
 reasoning của AgentDriver. Agent nhận top-5 (xếp theo DPR, như lần 2–6) làm "kinh nghiệm lái",
 cùng cảnh hiện tại (có trigger ở cuối nếu là query bị tấn công), rồi ra `Driving Plan`.
@@ -525,7 +525,7 @@ kiểm tra gần như bằng 0 so với chi phí train generator, nên không c�
 ### Tin tốt: cả hai test đã có sẵn trong code, không cần viết method mới
 
 **R1 → đã có baseline B3 `universal-logit`.**
-`src/triggers/mcat/train.py:42` — `MODES = ("direct-logit", "universal-logit", "generator")`.
+`src/attack/dilution/train.py:42` — `MODES = ("direct-logit", "universal-logit", "generator")`.
 Docstring nói đúng mục đích này:
 - `train.py:7` — *"`universal-logit` B3 — one logits matrix fitted across all train episodes"*
 - `train.py:11` — *"B3 whether one universal trigger already suffices, and only the gap above both ..."*
@@ -533,11 +533,11 @@ Docstring nói đúng mục đích này:
 Tức là ý định đã được ghi vào code từ đầu; việc còn lại là **chạy và đọc số**.
 
 **R2 → đã có method `reuse` + hạ tầng drift.**
-- `src/triggers/mcat/adapt.py:57` — `ADAPT_METHODS = ("reuse", "generate", "warm-start", "scratch")`
+- `src/attack/dilution/adapt.py:57` — `ADAPT_METHODS = ("reuse", "generate", "warm-start", "scratch")`
 - `adapt.py:160-167` — `reuse` = lấy đúng trigger của `s0` áp lên snapshot đã trôi
-- `src/triggers/mcat/drift.py` — sinh trajectory snapshot: phình 25/50/100%, và
+- `src/attack/dilution/drift.py` — sinh trajectory snapshot: phình 25/50/100%, và
   `mixture` / `deletion` / `distractor`
-- `src/triggers/mcat/drift_eval.py` — chấm từng ô `(episode, snapshot, method)`,
+- `src/attack/dilution/drift_eval.py` — chấm từng ô `(episode, snapshot, method)`,
   giữ riêng dòng `base` làm mốc chưa trôi
 
 Vậy R2 chính là câu hỏi: **`reuse` tụt bao nhiêu khi đi từ `base` sang các snapshot trôi?**
@@ -608,7 +608,7 @@ chọn ngưỡng.
 
 - **R1 bị bác bỏ** nếu per-episode / memory-conditioned trigger hơn B3
   `universal-logit` một khoảng **có ý nghĩa thống kê** (paired bootstrap đã có ở
-  `src/triggers/mcat/stats.py`) trên ASR-r, **ở cùng ngân sách** (xem cảnh báo
+  `src/attack/dilution/stats.py`) trên ASR-r, **ở cùng ngân sách** (xem cảnh báo
   ngân sách ở `group_conditioned_triggers.md:175` — đừng cấp full budget cho từng
   episode rồi so với một universal duy nhất).
 - **R2 bị bác bỏ** nếu `reuse` **suy giảm rõ** theo mức drift, và khoảng cách
@@ -622,7 +622,7 @@ chọn ngưỡng.
 
 Protocol ở trên đã được cài thành stage chạy được, không phải pseudo-code:
 
-- `src/triggers/mcat/probes.py` — `growth_probe` / `summarize_growth` (R2),
+- `src/attack/dilution/probes.py` — `growth_probe` / `summarize_growth` (R2),
   `compare_runs` (R1), `position_probe` / `summarize_position` / `attention_mass` (P1).
 - CLI: `probe-growth`, `probe-position`, `probe-universal`.
 - `scripts/run_p0_probes.sh` — `preflight` / `r2` / `r1` / `position` / `all`.
@@ -651,10 +651,10 @@ hiệu ứng lớn hơn `seed_spread`. Ngân sách lệch ở R1 bị `compare_r
 Pipeline MCAT chỉ hỗ trợ **một** vị trí duy nhất: trigger được nối vào **cuối**
 query, ngay trước `[SEP]`.
 
-- `src/triggers/mcat/encoding.py:6` — assembly cố định là `[CLS] prefix trigger [SEP]`
-- `src/triggers/mcat/encoding.py:55` — `encode_with_trigger_embeddings` docstring:
+- `src/attack/dilution/encoding.py:6` — assembly cố định là `[CLS] prefix trigger [SEP]`
+- `src/attack/dilution/encoding.py:55` — `encode_with_trigger_embeddings` docstring:
   *"appended before `[SEP]`"*
-- `src/triggers/mcat/encoding.py:76-80` — `prefix = tokenizer(text, ...)` rồi
+- `src/attack/dilution/encoding.py:76-80` — `prefix = tokenizer(text, ...)` rồi
   `cat([CLS]+prefix, trigger_embeds, [SEP])`
 
 Tức là cả lúc **tối ưu** (soft/relaxation) và lúc **eval** (hard trigger) đều
@@ -852,7 +852,7 @@ vào agent (StrategyQA ReAct / EhrAgent) để đo ASR-a/ASR-t và false activat
 tầng hành vi. Liên quan trực tiếp P2 (pha loãng trong trace).
 
 **G3. Thiếu B1 (HotFlip per-episode) trong pipeline `mcat`.** Có HotFlip ở
-`src/triggers/hotflip_margin.py` cho QA, nhưng không chạy được như một `--mode`
+`src/attack/margin/hotflip_margin.py` cho QA, nhưng không chạy được như một `--mode`
 cùng episode/ngân sách. Không có B1 thì so sánh "MCAT vs. AgentPoison cùng quyền"
 — baseline reviewer hỏi đầu tiên — không đứng được.
 

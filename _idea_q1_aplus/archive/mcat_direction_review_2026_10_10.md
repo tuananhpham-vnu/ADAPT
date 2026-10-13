@@ -96,7 +96,7 @@ có trong artifact đã đọc; p1 còn thiếu đánh giá hoàn chỉnh. Số 
    trigger phục hồi dưới đúng threat model, và memory context có giá trị vượt
    universal/bank. Mọi thiết lập mới phải được khóa trước và báo cùng kết quả âm cũ.
 
-Roadmap cũ và `src/triggers/mcat/README.md` còn các câu ngày 2026-09-24 như “blocker
+Roadmap cũ và `src/attack/dilution/README.md` còn các câu ngày 2026-09-24 như “blocker
 là hardware” hoặc “chưa có số retriever thật”. Chúng đã lỗi thời đối với baseline/
 probe hiện tại. Vấn đề quyết định lúc này là **động cơ khoa học**, không phải chỉ GPU.
 
@@ -115,7 +115,7 @@ probe hiện tại. Vấn đề quyết định lúc này là **động cơ khoa
   `outputs/kaggle/mcat-p0-e2e-static-tuananhpham29-20261009-1447/mcat_p0_e2e/b2/seed_0/probes/e2e_static-suffix-test/probe_e2e.json`.
 - Writeback p5 JSON (`state: partial`):
   `outputs/kaggle/mcat-p0-e2e-wb5-anhtxk-20261009-1655/mcat_p0_e2e/b2/seed_0/probes/e2e_writeback-suffix-test/probe_e2e.json`.
-- Logic verdict/ngân sách: `src/triggers/mcat/probes.py:936`, `src/triggers/mcat/train.py:243`.
+- Logic verdict/ngân sách: `src/attack/dilution/probes.py:936`, `src/attack/dilution/train.py:243`.
 
 ## 7. Kiểm chứng bổ sung (lượt rà soát thứ hai, 2026-10-10 chiều)
 

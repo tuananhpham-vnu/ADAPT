@@ -1,5 +1,10 @@
 # Hướng memory attack: trạng thái và cổng chọn đề tài
 
+> **Yêu cầu mới trong ngày:** xem nhiều hướng attack-first trên memory tĩnh, đọc
+> [bảng peers và bốn kế hoạch pilot](static_memory_attack_options_2026_10_13.md).
+> Chưa chốt method; các ứng viên memory động bên dưới giữ làm tham khảo.
+> Kết quả và ngưỡng run 1–8 không thay đổi.
+
 Ngày **2026-10-13**. Đây là bản tổng hợp định hướng hiện tại từ ghi chú và kết quả trong repo;
 không phải vòng tra cứu literature mới, không phải method đã được xác nhận.
 

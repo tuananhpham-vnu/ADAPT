@@ -38,7 +38,7 @@ prompt thì `ReasoningAgent` đổi kế hoạch thành dừng đột ngột.
 
 ## 3. Luồng chạy cụ thể
 
-Chạy `make run-ad` (tức `python agentdriver/execution/inference.py`):
+Chạy `python agentdriver/execution/inference.py`:
 
 1. `inference.py` dựng `LanguageAgent`, đọc `data_samples_val.json`, mở span
    `agentdriver.run` rồi gọi `inference_all`.

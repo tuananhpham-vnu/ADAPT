@@ -144,8 +144,8 @@ FIXTURE="${FIXTURE:-0}"
 
 export TRANSFORMERS_NO_ADVISORY_WARNINGS=1 TOKENIZERS_PARALLELISM=false
 
-if [ ! -f "src/triggers/mcat/cli.py" ]; then
-  echo "!! run this from the repository root (src/triggers/mcat/cli.py not found)" >&2
+if [ ! -f "src/attack/dilution/cli.py" ]; then
+  echo "!! run this from the repository root (src/attack/dilution/cli.py not found)" >&2
   exit 1
 fi
 
@@ -200,7 +200,7 @@ for name in ("torch", "transformers", "numpy", "sklearn"):
 import torch
 print(f"  cuda available {torch.cuda.is_available()} | devices {torch.cuda.device_count()}")
 if "sklearn" in missing and os.environ.get("FIXTURE") != "1":
-    print("!! scikit-learn is required: src.triggers.clustering.fit_centers supplies the "
+    print("!! scikit-learn is required: src.attack.margin.clustering.fit_centers supplies the "
           "benign reference centers for every real run", file=sys.stderr)
     sys.exit(1)
 if [name for name in missing if name != "sklearn"]:
@@ -230,11 +230,11 @@ PY
 --mode direct-logit"
   (
     set -e
-    $PYTHON -m src.triggers.mcat prepare-episodes $small
-    $PYTHON -m src.triggers.mcat index            $small
-    $PYTHON -m src.triggers.mcat probe-growth     $small --split test \
+    $PYTHON -m src.attack.dilution prepare-episodes $small
+    $PYTHON -m src.attack.dilution index            $small
+    $PYTHON -m src.attack.dilution probe-growth     $small --split test \
       --drift-seed 0 1 --growth 0.25 1.0 --bootstrap-iterations 200
-    $PYTHON -m src.triggers.mcat probe-position   $small --split test \
+    $PYTHON -m src.attack.dilution probe-position   $small --split test \
       --position suffix --position prefix --position both --attention \
       --attention-queries 2 --bootstrap-iterations 200
   ) > "$log" 2>&1
@@ -267,10 +267,10 @@ prepare_arm () {
   local out
   out=$(arm_dir "$arm")
   local common="--output-dir $out $EPISODE_FLAGS $RETRIEVER_FLAGS"
-  $PYTHON -m src.triggers.mcat prepare-episodes $common $RESUME_FLAG
-  $PYTHON -m src.triggers.mcat index            $common
+  $PYTHON -m src.attack.dilution prepare-episodes $common $RESUME_FLAG
+  $PYTHON -m src.attack.dilution index            $common
   if [ "$with_train" = "1" ] || [ "$mode" != "direct-logit" ]; then
-    $PYTHON -m src.triggers.mcat train $common $TRAIN_FLAGS --mode "$mode" $RESUME_FLAG
+    $PYTHON -m src.attack.dilution train $common $TRAIN_FLAGS --mode "$mode" $RESUME_FLAG
   fi
 }
 
@@ -284,7 +284,7 @@ probe_r2 () {
   (
     set -e
     prepare_arm b2 direct-logit
-    $PYTHON -m src.triggers.mcat probe-growth $common $TRAIN_FLAGS \
+    $PYTHON -m src.attack.dilution probe-growth $common $TRAIN_FLAGS \
       --mode direct-logit --split "$PROBE_SPLIT" --growth $GROWTH \
       --drift-seed $SEED_FLAGS --min-base-hit "$MIN_BASE_HIT" \
       --growth-selection "$GROWTH_SELECTION" \
@@ -308,7 +308,7 @@ probe_contam () {
   (
     set -e
     prepare_arm b2 direct-logit
-    $PYTHON -m src.triggers.mcat probe-contamination $common $TRAIN_FLAGS \
+    $PYTHON -m src.attack.dilution probe-contamination $common $TRAIN_FLAGS \
       --mode direct-logit --split "$PROBE_SPLIT" --scenario "$CONTAM_SCENARIO" \
       $levels --drift-seed $SEED_FLAGS \
       --bootstrap-iterations "$BOOTSTRAP" $RESUME_FLAG
@@ -332,7 +332,7 @@ probe_writeback () {
   (
     set -e
     prepare_arm b2 direct-logit
-    $PYTHON -m src.triggers.mcat probe-writeback $common $TRAIN_FLAGS \
+    $PYTHON -m src.attack.dilution probe-writeback $common $TRAIN_FLAGS \
       --mode direct-logit --split "$PROBE_SPLIT" $extra --drift-seed $SEED_FLAGS \
       --bootstrap-iterations "$BOOTSTRAP" $RESUME_FLAG
   ) > "$log" 2>&1
@@ -367,7 +367,7 @@ probe_e2e () {
   (
     set -e
     prepare_arm b2 direct-logit
-    $PYTHON -m src.triggers.mcat probe-e2e $common $TRAIN_FLAGS \
+    $PYTHON -m src.attack.dilution probe-e2e $common $TRAIN_FLAGS \
       --mode direct-logit --split "$PROBE_SPLIT" $extra \
       --bootstrap-iterations "$BOOTSTRAP"
   ) > "$log" 2>&1
@@ -392,13 +392,13 @@ probe_r1 () {
     prepare_arm b3 universal-logit
     # Equal step budget on both sides: the whole comparison is worthless if the
     # per-episode arm is given more optimization than the universal one.
-    $PYTHON -m src.triggers.mcat evaluate --output-dir "$treatment" \
+    $PYTHON -m src.attack.dilution evaluate --output-dir "$treatment" \
       $EPISODE_FLAGS $RETRIEVER_FLAGS $TRAIN_FLAGS --mode direct-logit \
       --split "$PROBE_SPLIT" $RESUME_FLAG
-    $PYTHON -m src.triggers.mcat evaluate --output-dir "$control" \
+    $PYTHON -m src.attack.dilution evaluate --output-dir "$control" \
       $EPISODE_FLAGS $RETRIEVER_FLAGS $TRAIN_FLAGS --mode universal-logit \
       --split "$PROBE_SPLIT" $RESUME_FLAG
-    $PYTHON -m src.triggers.mcat probe-universal --output-dir "$treatment" \
+    $PYTHON -m src.attack.dilution probe-universal --output-dir "$treatment" \
       $EPISODE_FLAGS $RETRIEVER_FLAGS $TRAIN_FLAGS --mode direct-logit \
       --control-dir "$control" --bootstrap-iterations "$BOOTSTRAP"
   ) > "$log" 2>&1
@@ -418,7 +418,7 @@ probe_position () {
   (
     set -e
     prepare_arm b2 direct-logit
-    $PYTHON -m src.triggers.mcat probe-position $common $TRAIN_FLAGS \
+    $PYTHON -m src.attack.dilution probe-position $common $TRAIN_FLAGS \
       --mode direct-logit --split "$PROBE_SPLIT" $POSITION_FLAGS \
       --position-mode "$POSITION_MODE" --position-baseline "$POSITION_BASELINE" \
       $ATTENTION_FLAG --bootstrap-iterations "$BOOTSTRAP" $RESUME_FLAG

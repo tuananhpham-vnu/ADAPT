@@ -13,8 +13,8 @@ import unittest
 
 import torch
 
-from src.triggers.mcat.evaluate import retrieval_metrics
-from src.triggers.mcat.probes import GrowthProbeConfig, hit_of, summarize_growth
+from src.attack.dilution.evaluate import retrieval_metrics
+from src.attack.dilution.probes import GrowthProbeConfig, hit_of, summarize_growth
 
 
 class HitCurveTests(unittest.TestCase):
@@ -70,7 +70,7 @@ class SharedSearchCliTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.directory, True)
 
     def _main(self, command, *extra):
-        from src.triggers.mcat.cli import main
+        from src.attack.dilution.cli import main
         argv = [
             command, "--output-dir", str(self.directory), "--fixture",
             "--domain", "qa", "--corpus-limit", "300", "--per-split", "3",

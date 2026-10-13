@@ -29,7 +29,7 @@ Upstream mang theo sẵn, không phải tải riêng:
 - `analysis/scripts/` — script dựng bảng và biểu đồ từ output.
 
 Quy ước quan trọng: **không sửa trong `src/artemis/`**, trừ đúng một file là `model_factory.py`.
-Toàn bộ phần mở rộng của mình nằm ở `src/adapt/`. Sửa lung tung trong cây upstream thì lần merge sau
+Toàn bộ phần mở rộng của mình nằm ở `src/artemis/`. Sửa lung tung trong cây upstream thì lần merge sau
 sẽ conflict khắp nơi.
 
 Cập nhật về sau:

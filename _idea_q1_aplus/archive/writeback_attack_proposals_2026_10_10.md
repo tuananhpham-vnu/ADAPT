@@ -35,7 +35,7 @@ Ba giới hạn ảnh hưởng trực tiếp đến thiết kế attack:
 
 - Cleanup hiện là xoá seed rồi evaluate snapshot; chưa chạy tiếp nhiều vòng ghi
   sau cleanup. Chưa có bằng chứng hậu duệ tự duy trì qua các thế hệ tiếp theo.
-- `written_record` trong `src/triggers/mcat/e2e.py` dùng query nguyên văn làm key,
+- `written_record` trong `src/attack/dilution/e2e.py` dùng query nguyên văn làm key,
   gồm trigger. `verified` kiểm tra plan đúng rồi lưu câu trả lời; `corrected`
   thay nội dung bằng `query.gt_reasoning`. Đây là policy do harness thực hiện.
 - “Các bản ghi tốt/xấu triệt tiêu nhau” là diễn giải hợp lý, chưa là kết luận nhân

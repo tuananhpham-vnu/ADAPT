@@ -16,15 +16,15 @@ import unittest
 
 import torch
 
-from src.triggers.mcat.cli import main
-from src.triggers.mcat.episodes import Episode
-from src.triggers.mcat.hotflip import HotFlipTrigger, hotflip_candidates, hotflip_step
-from src.triggers.mcat.retrievers import build_fixture_retriever, fixture_text
-from src.triggers.mcat.runtime import EpisodeContext
-from src.triggers.mcat.train import (
+from src.attack.dilution.cli import main
+from src.attack.dilution.episodes import Episode
+from src.attack.dilution.hotflip import HotFlipTrigger, hotflip_candidates, hotflip_step
+from src.attack.dilution.retrievers import build_fixture_retriever, fixture_text
+from src.attack.dilution.runtime import EpisodeContext
+from src.attack.dilution.train import (
     TrainConfig, _logits_source, build_contract, losses_for, train,
 )
-from src.triggers.artifacts import stable_hash
+from src.attack.margin.artifacts import stable_hash
 
 MAX_LENGTH = 32
 

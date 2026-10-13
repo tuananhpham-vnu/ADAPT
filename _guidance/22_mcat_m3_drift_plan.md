@@ -1,6 +1,6 @@
 # 22 — MCAT M3: memory drift, few-step adaptation và cost accounting
 
-> Viết ngày 2026-09-20, dựa trên code thực tế của `src/triggers/mcat/` (M0–M2 đã xong).
+> Viết ngày 2026-09-20, dựa trên code thực tế của `src/attack/dilution/` (M0–M2 đã xong).
 > Đọc kèm `_idea_q1_aplus/archive/memory_conditioned_generator_Q1_A_star.md` §10, §11, §13 (định nghĩa
 > nghiên cứu) và `_guidance/20_mcat_kaggle_runbook.md` (cách chạy M0–M2).
 > **Cập nhật 2026-09-20: bước 1–7 đã implement xong** (xem §10); phần còn lại là bước 8,
@@ -39,7 +39,7 @@ poison `B = episode.budget_poison`, cùng scorer. Nếu một method được re
 mọi method đều được, và số lần ghi index phải bằng nhau — nếu không, so sánh chi phí là
 vô nghĩa.
 
-## 2. Snapshot và trajectory — module mới `src/triggers/mcat/drift.py`
+## 2. Snapshot và trajectory — module mới `src/attack/dilution/drift.py`
 
 `Episode` hiện đã có `snapshot_id = f"{domain}-{split}-{index:03d}-s0"` nhưng chưa có gì
 sinh ra snapshot thứ hai. M3 thêm:
@@ -147,7 +147,7 @@ Test bắt buộc: hai snapshot khác nhau với `--poison-mode fixed` phải ch
 poison vectors (bit-identical), còn `refresh` thì phải khác. Không có test này thì nhánh
 fixed sẽ âm thầm mượn lợi thế của refresh và mọi số dưới đó đều vô giá trị.
 
-## 5. Bốn method — module mới `src/triggers/mcat/adapt.py`
+## 5. Bốn method — module mới `src/attack/dilution/adapt.py`
 
 ```python
 ADAPT_METHODS = ("reuse", "generate", "warm-start", "scratch")
@@ -186,7 +186,7 @@ Với `config.mode == "direct-logit"`, `generate` không áp dụng được (B2
 transfer) — trả `{"applicable": false, "reason": "direct-logit has nothing to transfer"}`,
 đúng tinh thần mà `evaluate_stage` đang xử lý bằng thư mục `adapt-<split>/`.
 
-## 6. Cost accounting — module mới `src/triggers/mcat/costs.py`
+## 6. Cost accounting — module mới `src/attack/dilution/costs.py`
 
 Đây là nửa còn lại của M3 và hiện repo **chưa đếm gì cả**. `costs.json` phải có:
 
@@ -237,7 +237,7 @@ generator nhanh nhưng hit@K thấp hơn nhiều không phải speedup. Report p
 Warmup: trước khi đo latency, chạy 3 lần bỏ đi và `torch.cuda.synchronize()` trước/sau
 mỗi phép đo. Báo p50 và p95, không báo mean.
 
-## 7. Thống kê — module mới `src/triggers/mcat/stats.py`
+## 7. Thống kê — module mới `src/attack/dilution/stats.py`
 
 §11.2 yêu cầu paired differences và bootstrap theo episode family/trajectory, không phải
 theo query (query trong cùng episode không độc lập).
@@ -258,12 +258,12 @@ từng hàng. Báo ba mức tổng hợp: macro theo episode, micro theo query, 
 Stage mới, giữ đúng kiểu resume theo hash của `cli.py` hiện tại:
 
 ```bash
-python -m src.triggers.mcat prepare-drift   --output-dir outputs/mcat/pilot --growth 0.25 0.5 1.0
-python -m src.triggers.mcat adapt           --output-dir outputs/mcat/pilot --split test \
+python -m src.attack.dilution prepare-drift   --output-dir outputs/mcat/pilot --growth 0.25 0.5 1.0
+python -m src.attack.dilution adapt           --output-dir outputs/mcat/pilot --split test \
     --method reuse --method generate --method warm-start --method scratch \
     --adapt-steps 10 --poison-mode refresh
-python -m src.triggers.mcat evaluate-drift  --output-dir outputs/mcat/pilot --split test
-python -m src.triggers.mcat report          --output-dir outputs/mcat/pilot   # mở rộng
+python -m src.attack.dilution evaluate-drift  --output-dir outputs/mcat/pilot --split test
+python -m src.attack.dilution report          --output-dir outputs/mcat/pilot   # mở rộng
 ```
 
 `make.ps1` thêm `mcat-drift`, `mcat-adapt`, `mcat-evaluate-drift` cạnh các target hiện có.
@@ -319,16 +319,16 @@ Chạy trên fixture retriever, CPU, không tải model — giống `tests/test_
 ## 10. Thứ tự làm
 
 1. ~~`drift.py` + test trajectory (không đụng GPU, không đụng train).~~ **xong** —
-   `src/triggers/mcat/drift.py`, `tests/test_mcat_drift.py`.
+   `src/attack/dilution/drift.py`, `tests/test_mcat_drift.py`.
 2. ~~Sửa `runtime.py` cho snapshot + cập nhật `evaluate.generate_trigger`.~~ **xong** —
    `context_for(episode, snapshot=None)`, `reference_centers(snapshot_id, memory)`,
    `EpisodeContext.snapshot_id`, `Workspace.assignment(...)`.
 3. ~~`poison_s0.pt` + nhánh fixed + test immutability.~~ **xong** —
-   `src/triggers/mcat/poison.py`, `evaluate._poison_keys(..., frozen=...)`.
-4. ~~`costs.py` + điểm đếm trong `encoding.py`.~~ **xong** — `src/triggers/mcat/costs.py`,
+   `src/attack/dilution/poison.py`, `evaluate._poison_keys(..., frozen=...)`.
+4. ~~`costs.py` + điểm đếm trong `encoding.py`.~~ **xong** — `src/attack/dilution/costs.py`,
    `tests/test_mcat_costs.py`. Dùng `record()` gọi thẳng thay vì decorator: vẫn đúng một
    điểm đo mỗi hàm và không đổi chữ ký, nhưng đọc ra ngay ở chỗ encode.
-5. ~~`adapt.py` + 4 method.~~ **xong** — `src/triggers/mcat/adapt.py`,
+5. ~~`adapt.py` + 4 method.~~ **xong** — `src/attack/dilution/adapt.py`,
    `tests/test_mcat_adapt.py`.
 6. ~~`stats.py` + mở rộng evaluate/report.~~ **xong** — `stats.py` (paired bootstrap,
    macro/micro/worst) và `drift_eval.py`. Đặt vòng chạy drift ở module riêng thay vì

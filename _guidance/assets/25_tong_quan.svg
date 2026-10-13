@@ -14,7 +14,7 @@
 <text x="137.5" y="259.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">scripts/run_p0_probes.sh</text>
 <text x="137.5" y="275.0" text-anchor="middle" font-size="11.5" fill="#475569">biến môi trường → cờ CLI</text>
 <rect x="25" y="338" width="225" height="70" rx="8" fill="#eef2f7" stroke="#64748b" stroke-width="1.6"/>
-<text x="137.5" y="369.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">python -m src.triggers.mcat</text>
+<text x="137.5" y="369.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Consolas, 'Cascadia Mono', Menlo, monospace" fill="#0f172a">python -m src.attack.dilution</text>
 <text x="137.5" y="385.0" text-anchor="middle" font-size="11.5" fill="#475569">&lt;stage&gt; · cli.py</text>
 <rect x="300" y="14" width="520" height="44" rx="8" fill="#fef3c7" stroke="#d97706" stroke-width="1.6"/>
 <text x="560.0" y="40.0" text-anchor="middle" font-size="13" font-weight="700" font-family="Segoe UI, Helvetica, Arial, sans-serif" fill="#0f172a">Dữ liệu:  ReAct/ (qa) · EhrAgent/ (ehr) · agentdriver/ (ad)</text>

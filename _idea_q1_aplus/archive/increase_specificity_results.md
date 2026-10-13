@@ -1,7 +1,7 @@
 # Tăng specificity: từ bank trigger chung sang chọn theo query hiện tại
 
 Ngày 2026-09-15. Phạm vi: **liên quan đến query và chất lượng ngôn ngữ**, không
-đánh giá ASR. Code ở [src/triggers/specificity](../../src/triggers/specificity/README.md).
+đánh giá ASR. Code ở [src/attack/specificity](../../src/attack/specificity/README.md).
 
 ## Kết quả chính
 
@@ -140,7 +140,7 @@ tính thừa và độ đầy đủ của topic; không mặc định mọi pref
 .\make.ps1 trigger-suggest --query "Can bicycles use this lane?" --output outputs/specificity/example-bicycle.json
 ```
 
-- [Hướng dẫn file, model cache và lệnh tái lập](../../src/triggers/specificity/README.md).
+- [Hướng dẫn file, model cache và lệnh tái lập](../../src/attack/specificity/README.md).
 - [Báo cáo xác nhận đầy đủ](../../outputs/specificity/confirm-pos-v2/REPORT.md).
 - [Điểm từng câu](../../outputs/specificity/confirm-pos-v2/results.json).
 - [Câu trước/sau và điểm CSV](../../outputs/specificity/confirm-pos-v2/records.csv).

@@ -13,15 +13,12 @@ hỏi "tôi phải gõ gì, theo thứ tự nào".
 | `02_evaluation.md` | Bốn chỉ số ACC, ASR-r, ASR-a, ASR-t nghĩa là gì và đọc thế nào. |
 | `03_attack.md` | Giải thích thuật toán tối ưu trigger và các tham số quan trọng. |
 | `04_end_to_end.md` | Chạy một thí nghiệm đầy đủ để lấy số báo cáo, gồm cả agent `ad`. |
-| `05_toolpoison_demo.md` | Demo AgentPoison tấn công tool-calling (function-calling chuẩn), gồm giải thích cơ chế và cách chạy `src/toolpoison/`. |
-| `18_agentpoison_phases.md` | Runner artifact theo từng phase, resume và ablation công bằng trên StrategyQA thật. |
 | `19_agentpoison_margin_implementation.md` | Hợp đồng code và vận hành so sánh AgentPoison gốc với retrieval-margin loss trên StrategyQA. |
-| `20_mcat_kaggle_runbook.md` | Chạy MCAT M0–M2 trên Kaggle: 7 arm, một GPU, resume sau khi bị cắt 12h. |
-| `21_specificity_pipeline_stages_agentpoison.md` | Các stage của pipeline specificity trên AgentPoison. |
-| `22_mcat_m3_drift_plan.md` | **Kế hoạch** M3 của MCAT: memory drift, few-step adaptation, cost accounting và break-even. Chưa có code. |
-| `23_aqua_agent_generation_plan.md` | **Kế hoạch** bước kế tiếp của AQuA: agent tự sinh tool call thay cho candidate replay, và tập clean benign. Chưa có code. |
-| `24_p0_probe_kaggle_runbook.md` | Chạy probe P0/P1 (R2, R1, vị trí) trên Kaggle, bản viết cho lần chạy 1. |
-| `25_helper_tong_hop.md` | **Đọc đầu tiên nếu không muốn đọc code**: bản đồ thư mục, từ vựng, config, từng stage của pipeline MCAT / probe P0 / Kaggle, output nằm đâu, lỗi thường gặp. |
+| `20_mcat_kaggle_runbook.md` | Chạy MCAT M0–M2 trên Kaggle (`scripts/run_mcat.sh`). Hướng generator đã dừng; giữ để tái lập. |
+| `22_mcat_m3_drift_plan.md` | Kế hoạch M3 của MCAT (memory drift, adaptation, break-even). Lịch sử; hướng đã dừng. |
+| `23_aqua_agent_generation_plan.md` | **Kế hoạch** bước kế tiếp của AQuA (đang tạm gác): agent tự sinh tool call thay cho candidate replay, và tập clean benign. Chưa có code. |
+| `24_p0_probe_kaggle_runbook.md` | Chạy `src/attack/dilution/` trên Kaggle qua `scripts/run_p0_probes.sh` (probe P0/P1, write-back, e2e). |
+| `25_helper_tong_hop.md` | **Đọc đầu tiên nếu không muốn đọc code**: bản đồ thư mục, từ vựng, config, từng stage của pipeline `dilution/` (probe P0, write-back, e2e) và Kaggle, output nằm đâu, lỗi thường gặp. |
 | `run.md` | Ghi chú chạy demo Corba. |
 
 ## Hướng mở rộng ARTEMIS (kiểm thử prompt của MAS)
@@ -38,7 +35,11 @@ Nhánh nghiên cứu thứ hai của repo, dựa trên paper ARTEMIS trong `surv
 | `14_stage3_system_testing.md` | Kiểm thử toàn luồng: độ phủ, lan truyền lỗi, dừng sớm. |
 | `15_stage4_rag_tooling.md` | Taxonomy TC/GC, RAG bị đầu độc, hỗ trợ AutoGen. |
 | `16_roadmap.md` | Bảng tổng, phụ thuộc giữa stage, ngân sách token, rủi ro. |
-| `17_trang_thai_va_ket_noi_toolpoison.md` | Trạng thái thực tế so với roadmap, cách nối demo tool-calling (`05_toolpoison_demo.md`) vào Stage 4. |
+| `17_trang_thai_va_ket_noi_toolpoison.md` | Trạng thái thực tế so với roadmap, cách nối demo tool-calling vào Stage 4 (demo đã xoá 2026-10-13; giữ làm lịch sử). |
+
+Đã xoá ngày 2026-10-13 cùng phần code tương ứng: `05_toolpoison_demo.md`,
+`18_agentpoison_phases.md` (`src/agentpoison/`), `21_specificity_pipeline_stages_agentpoison.md`
+(`src/attack/specificity/`). Lấy lại từ git nếu cần.
 
 ## Nguyên tắc chung khi chạy
 
@@ -47,4 +48,5 @@ Nhánh nghiên cứu thứ hai của repo, dựa trên paper ARTEMIS trong `surv
    không dán WordPiece vào source code.
 3. Pipeline mới ghi checkpoint và tự bỏ qua iteration/episode đã hoàn thành; giữ nguyên
    cấu hình và dùng `--resume` khi chạy lại.
-4. Đổi embedder thì `make clean-cache`, nếu không sẽ dùng nhầm cache embedding cũ.
+4. Cache embedding của `algo/` đặt tên theo `model_code`; thay checkpoint mà giữ nguyên tên thì xoá
+   cache cũ (xem `algo/README.md` §4).

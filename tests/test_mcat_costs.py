@@ -11,12 +11,12 @@ import unittest
 
 import torch
 
-from src.triggers.mcat.costs import (
+from src.attack.dilution.costs import (
     COUNTERS, CostLedger, amortization, break_even, current, lifecycle_cost,
     measure_online, percentile, record, summarize_latency,
 )
-from src.triggers.mcat.encoding import encode_plain, encode_with_trigger_embeddings
-from src.triggers.mcat.retrievers import build_fixture_retriever, fixture_text
+from src.attack.dilution.encoding import encode_plain, encode_with_trigger_embeddings
+from src.attack.dilution.retrievers import build_fixture_retriever, fixture_text
 
 MAX_LENGTH = 32
 
@@ -257,7 +257,7 @@ class PipelineAccountingTests(unittest.TestCase):
                 "--top-k", "3", "--steps", "2", "--max-length", "32"]
 
     def test_a_run_charges_training_and_writes_to_the_ledger(self):
-        from src.triggers.mcat.cli import main
+        from src.attack.dilution.cli import main
 
         ledger = CostLedger(device="cpu")
         with ledger.active():
@@ -285,7 +285,7 @@ class PipelineAccountingTests(unittest.TestCase):
         self.assertEqual(ledger.counters["scorer_calls"], 0)
 
     def test_counters_are_not_charged_when_no_ledger_is_active(self):
-        from src.triggers.mcat.cli import main
+        from src.attack.dilution.cli import main
 
         for command in ("prepare-episodes", "index", "train"):
             main(self._argv(command))

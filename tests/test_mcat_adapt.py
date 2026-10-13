@@ -16,18 +16,18 @@ import unittest
 
 import torch
 
-from src.triggers.mcat.adapt import (
+from src.attack.dilution.adapt import (
     ADAPT_METHODS, AdaptConfig, adapt_all, adapt_trigger, fresh_module,
 )
-from src.triggers.mcat.cli import main
-from src.triggers.mcat.costs import CostLedger
-from src.triggers.mcat.drift import Snapshot
-from src.triggers.mcat.drift_eval import DRIFT_ROWS, DRIFT_SUMMARY, aggregate, load_rows
-from src.triggers.mcat.episodes import Episode
-from src.triggers.mcat.retrievers import build_fixture_retriever, fixture_text
-from src.triggers.mcat.runtime import EpisodeContext, Workspace
-from src.triggers.mcat.stats import macro_micro_worst, paired_bootstrap
-from src.triggers.mcat.train import TrainConfig
+from src.attack.dilution.cli import main
+from src.attack.dilution.costs import CostLedger
+from src.attack.dilution.drift import Snapshot
+from src.attack.dilution.drift_eval import DRIFT_ROWS, DRIFT_SUMMARY, aggregate, load_rows
+from src.attack.dilution.episodes import Episode
+from src.attack.dilution.retrievers import build_fixture_retriever, fixture_text
+from src.attack.dilution.runtime import EpisodeContext, Workspace
+from src.attack.dilution.stats import macro_micro_worst, paired_bootstrap
+from src.attack.dilution.train import TrainConfig
 
 MAX_LENGTH = 32
 
@@ -94,7 +94,7 @@ class AdaptMethodTests(unittest.TestCase):
         torch.manual_seed(0)
         self.base_module = fresh_module(self.config, self.retriever, self.episode)
         base_context = self.workspace.context_for(self.episode)
-        from src.triggers.mcat.evaluate import generate_trigger
+        from src.attack.dilution.evaluate import generate_trigger
         self.base_trigger = generate_trigger(self.base_module, self.config,
                                              base_context, self.retriever)
         self.context = self.workspace.context_for(self.episode, self.snapshot)

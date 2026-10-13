@@ -3,7 +3,7 @@
 Trả lời câu hỏi "các agent khi ghép lại thì thế nào", và sửa đúng giới hạn paper gọi là
 *unrealistic test cases*.
 
-Code: `src/adapt/integration/`
+Code: `src/artemis/integration/`
 
 ## Vấn đề
 

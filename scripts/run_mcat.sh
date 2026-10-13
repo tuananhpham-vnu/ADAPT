@@ -1,7 +1,7 @@
 #!/bin/bash
 # MCAT M0-M2 pilot: episode preparation, generator training and the baseline arms.
 #
-# Runs src/triggers/mcat over StrategyQA (+ EhrAgent) on a single GPU. Every arm shares one
+# Runs src/attack/dilution over StrategyQA (+ EhrAgent) on a single GPU. Every arm shares one
 # clean-vector cache, so the corpus is encoded once rather than once per arm.
 #
 # Usage (from repo root):
@@ -34,12 +34,12 @@
 #   margin  m1 with the retrieval hinge on .... ablates lambda_ret
 #
 # Notes:
-#  * Needs ONE GPU. Unlike src/triggers/margin.py there is no GPT-2 or Llama
+#  * Needs ONE GPU. Unlike src/attack/margin/margin.py there is no GPT-2 or Llama
 #    scorer at M0-M2, so do not reserve two.
-#  * scikit-learn is required: src.triggers.clustering.fit_centers supplies the benign
+#  * scikit-learn is required: src.attack.margin.clustering.fit_centers supplies the benign
 #    reference centers. Without it `train` stops, by design.
 #  * --domain ad needs agentdriver/data/finetune/data_samples_{train,val}.json, which
-#    are not vendored (gdown ids in src/triggers/mcat/domains.py AD_MISSING). Its
+#    are not vendored (gdown ids in src/attack/dilution/domains.py AD_MISSING). Its
 #    keys run to ~580 tokens at p90, so use MAX_LENGTH=512 and a smaller OPTIMIZATION
 #    to keep the backward pass inside a T4, e.g.
 #      DOMAINS=ad MAX_LENGTH=512 OPTIMIZATION=16 bash scripts/run_mcat.sh m1
@@ -103,8 +103,8 @@ FIXTURE="${FIXTURE:-0}"
 
 export TRANSFORMERS_NO_ADVISORY_WARNINGS=1 TOKENIZERS_PARALLELISM=false
 
-if [ ! -f "src/triggers/mcat/cli.py" ]; then
-  echo "!! run this from the repository root (src/triggers/mcat/cli.py not found)" >&2
+if [ ! -f "src/attack/dilution/cli.py" ]; then
+  echo "!! run this from the repository root (src/attack/dilution/cli.py not found)" >&2
   exit 1
 fi
 
@@ -171,7 +171,7 @@ for name in ("torch", "transformers", "numpy", "sklearn"):
 import torch
 print(f"  cuda available {torch.cuda.is_available()} | devices {torch.cuda.device_count()}")
 if "sklearn" in missing and os.environ.get("FIXTURE") != "1":
-    print("!! scikit-learn is required: src.triggers.clustering.fit_centers supplies the "
+    print("!! scikit-learn is required: src.attack.margin.clustering.fit_centers supplies the "
           "benign reference centers for every real run", file=sys.stderr)
     sys.exit(1)
 if [name for name in missing if name != "sklearn"]:
@@ -195,7 +195,7 @@ PY
   local smoke="$RUN_ROOT/_smoke"
   local smoke_log="$RUN_ROOT/_preflight-smoke.log"
   rm -rf "$smoke"
-  if ! $PYTHON -m src.triggers.mcat smoke --output-dir "$smoke" --fixture \
+  if ! $PYTHON -m src.attack.dilution smoke --output-dir "$smoke" --fixture \
       --domain qa --corpus-limit 400 --per-split 2 \
       --documents 24 --support 4 --optimization 6 --evaluation 8 \
       --poison-count 2 --trigger-tokens 4 --top-k 3 --steps 3 --max-length 32 \
@@ -229,26 +229,26 @@ run_arm () {
   # the whole sweep instead of failing this one arm. A subshell is what is meant.
   (
     set -e
-    $PYTHON -m src.triggers.mcat prepare-episodes $common $RESUME_FLAG
-    $PYTHON -m src.triggers.mcat index            $common
-    $PYTHON -m src.triggers.mcat train            $common $TRAIN_FLAGS $flags $RESUME_FLAG
-    $PYTHON -m src.triggers.mcat evaluate         $common $TRAIN_FLAGS $flags --split "$EVAL_SPLIT" $RESUME_FLAG
+    $PYTHON -m src.attack.dilution prepare-episodes $common $RESUME_FLAG
+    $PYTHON -m src.attack.dilution index            $common
+    $PYTHON -m src.attack.dilution train            $common $TRAIN_FLAGS $flags $RESUME_FLAG
+    $PYTHON -m src.attack.dilution evaluate         $common $TRAIN_FLAGS $flags --split "$EVAL_SPLIT" $RESUME_FLAG
     if [ "$DRIFT" = "1" ]; then
-      $PYTHON -m src.triggers.mcat prepare-drift  $common --growth $GROWTH
+      $PYTHON -m src.attack.dilution prepare-drift  $common --growth $GROWTH
       if [ -n "$SWEEP_STEPS" ]; then
         # Budget selection, on validation only. Each value lands in its own
         # drift/<policy>-steps<N>-<split>/ directory, so the arms stay separable
         # and nothing has to be locked in before the numbers are in.
         for budget in $SWEEP_STEPS; do
-          $PYTHON -m src.triggers.mcat adapt         $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --split validation --adapt-steps "$budget" $RESUME_FLAG
-          $PYTHON -m src.triggers.mcat evaluate-drift $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --split validation --adapt-steps "$budget"
+          $PYTHON -m src.attack.dilution adapt         $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --split validation --adapt-steps "$budget" $RESUME_FLAG
+          $PYTHON -m src.attack.dilution evaluate-drift $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --split validation --adapt-steps "$budget"
         done
       else
-        $PYTHON -m src.triggers.mcat adapt          $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --adapt-steps "$ADAPT_STEPS" $RESUME_FLAG
-        $PYTHON -m src.triggers.mcat evaluate-drift $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --adapt-steps "$ADAPT_STEPS"
+        $PYTHON -m src.attack.dilution adapt          $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --adapt-steps "$ADAPT_STEPS" $RESUME_FLAG
+        $PYTHON -m src.attack.dilution evaluate-drift $common $TRAIN_FLAGS $flags $DRIFT_FLAGS --adapt-steps "$ADAPT_STEPS"
       fi
     fi
-    $PYTHON -m src.triggers.mcat report           $common $DRIFT_FLAGS --adapt-steps "$ADAPT_STEPS"
+    $PYTHON -m src.attack.dilution report           $common $DRIFT_FLAGS --adapt-steps "$ADAPT_STEPS"
   ) > "$log" 2>&1
   local status=$?
   if [ $status -ne 0 ]; then

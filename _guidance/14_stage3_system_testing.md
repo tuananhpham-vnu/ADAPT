@@ -4,7 +4,7 @@ Phần anh Hiệp muốn xem kỹ hơn. Không phải làm từ đầu: upstream
 end-to-end, nhưng đang dùng **mock agent**. Việc của stage này là thay mock bằng agent thật và định
 lượng ba hiện tượng chỉ xuất hiện ở mức luồng.
 
-Code: `src/adapt/system/`
+Code: `src/artemis/system/`
 
 ## Ba metric
 

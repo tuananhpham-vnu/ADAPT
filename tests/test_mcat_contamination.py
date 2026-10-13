@@ -12,8 +12,8 @@ import shutil
 import tempfile
 import unittest
 
-from src.triggers.mcat.cli import main
-from src.triggers.mcat.contamination import CONTAMINATION_ROWS, ContaminationConfig
+from src.attack.dilution.cli import main
+from src.attack.dilution.contamination import CONTAMINATION_ROWS, ContaminationConfig
 
 
 class ContaminationConfigTests(unittest.TestCase):

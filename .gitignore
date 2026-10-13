@@ -209,3 +209,7 @@ trick.txt
 # Kaggle API credentials
 .kaggle/
 _phd_applications/
+agentdriver/data/finetune/
+agentdriver/data/memory/
+*.DS_Store
+.DS_Store

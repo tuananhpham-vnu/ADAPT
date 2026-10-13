@@ -17,16 +17,16 @@ import unittest
 import numpy as np
 import torch
 
-from src.triggers.mcat.cache import (
+from src.attack.dilution.cache import (
     PREBUILT_QA_VECTORS, load_prebuilt_qa_vectors, select_rows,
 )
-from src.triggers.mcat.cli import main
-from src.triggers.mcat.evaluate import retrieval_metrics, shuffled_context_control
-from src.triggers.mcat.generator import (
+from src.attack.dilution.cli import main
+from src.attack.dilution.evaluate import retrieval_metrics, shuffled_context_control
+from src.attack.dilution.generator import (
     SetEncoder, TriggerGenerator, parameter_count, sample_memory_keys,
 )
-from src.triggers.mcat.relaxation import straight_through_gumbel
-from src.triggers.mcat.retrievers import build_fixture_retriever, fixture_text
+from src.attack.dilution.relaxation import straight_through_gumbel
+from src.attack.dilution.retrievers import build_fixture_retriever, fixture_text
 
 MAX_LENGTH = 32
 
@@ -337,7 +337,7 @@ class PrebuiltIndexTests(unittest.TestCase):
 
     def test_the_repository_index_is_refused_because_it_is_l2_normalized(self):
         """Guards the real file: it is l2-normalized, so it must not be reused."""
-        from src.triggers.artifacts import ROOT, read_json
+        from src.attack.margin.artifacts import ROOT, read_json
 
         manifest_path = ROOT / PREBUILT_QA_VECTORS / "manifest.json"
         if not manifest_path.exists():
@@ -361,7 +361,7 @@ class ShuffledContextControlTests(unittest.TestCase):
     """The control must swap snapshots within a domain, never across them."""
 
     def setUp(self):
-        from src.triggers.mcat.train import TrainConfig
+        from src.attack.dilution.train import TrainConfig
 
         self.retriever = build_fixture_retriever(max_length=MAX_LENGTH)
         self.config = TrainConfig(mode="generator", variant="memory+query")
@@ -373,8 +373,8 @@ class ShuffledContextControlTests(unittest.TestCase):
         )
 
     def _context(self, episode_id, domain):
-        from src.triggers.mcat.episodes import Episode
-        from src.triggers.mcat.runtime import EpisodeContext
+        from src.attack.dilution.episodes import Episode
+        from src.attack.dilution.runtime import EpisodeContext
 
         torch.manual_seed(abs(hash(episode_id)) % 1000)
         episode = Episode(
@@ -453,7 +453,7 @@ class ShuffledContextControlTests(unittest.TestCase):
         self.assertEqual(effect["on_hit"]["drop"]["groups"], 3)
 
     def test_a_changed_trigger_with_equal_scores_reads_as_inert(self):
-        from src.triggers.mcat.evaluate import _metric_effect
+        from src.attack.dilution.evaluate import _metric_effect
 
         rows = [{"episode_id": f"e{i}", "own": {"on_hit": 0.5, "mean_margin": 0.1},
                  "swapped_score": {"on_hit": 0.5, "mean_margin": 0.1}} for i in range(4)]

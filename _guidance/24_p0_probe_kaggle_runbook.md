@@ -47,7 +47,7 @@ print('transformers', transformers.__version__)"
 
 `transformers>=5.3` là bắt buộc: bản 5.0–5.2 nạp `facebook/dpr-*` mà không lowercase,
 mọi từ viết hoa thành `[UNK]`, và hình học sai hoàn toàn. `load_dpr` tự kiểm tra và
-dừng ngay — xem `src/triggers/mcat/retrievers.py`.
+dừng ngay — xem `src/attack/dilution/retrievers.py`.
 
 Cell Kaggle điển hình:
 

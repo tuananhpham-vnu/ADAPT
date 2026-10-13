@@ -1,5 +1,9 @@
 # Trạng thái ARTEMIS hiện tại và điểm nối với demo tool-calling
 
+> **2026-10-13:** demo tool-calling ngân hàng (`src/toolpoison/`, sau là `src/agentpoison/agent.py`…) và
+> `_guidance/05_toolpoison_demo.md` đã xoá; `src/integration/` gộp vào `src/artemis/extensions/`.
+> File này giữ làm lịch sử, lấy lại code từ git nếu cần.
+
 `10_artemis_overview.md` đến `16_roadmap.md` đã có kế hoạch chi tiết cho từng stage. File này không lặp
 lại kế hoạch đó — nó (1) đối chiếu trạng thái thực tế so với roadmap, và (2) chỉ ra cách demo tool-calling
 ở `05_toolpoison_demo.md` (`src/toolpoison/`) trở thành mảnh ghép đầu tiên cho Stage 4, sớm hơn dự kiến
@@ -9,7 +13,7 @@ trong roadmap gốc.
 
 Từ phiên bản này, code Phần B (mở rộng ARTEMIS) tách khỏi Phần A (`src/toolpoison/`), sống ở
 `src/integration/` (trừ Stage 0 vendor code gốc, đi thẳng vào `src/artemis/` — xem
-`src/integration/README.md`). Đường dẫn `src/adapt/*` nhắc ở `11-16` là tên gọi lúc lập kế hoạch; tên
+`src/integration/README.md`). Đường dẫn `src/artemis/*` nhắc ở `11-16` là tên gọi lúc lập kế hoạch; tên
 thật khi triển khai là `src/integration/*` như bảng dưới.
 
 | Stage | Kế hoạch | Thực tế hiện có |

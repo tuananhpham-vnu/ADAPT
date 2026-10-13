@@ -4,7 +4,7 @@ Paper nói thẳng: "Ignore agents with tooling. Currently ARTEMIS only tests be
 system prompt and cannot simulate tool calls." Stage này lấp chỗ đó, và là chỗ repo ADAPT có lợi thế
 mà không nhóm nào khác có: sẵn agent dùng tool thật, sẵn RAG, và sẵn máy sinh context đối kháng.
 
-Code: `src/adapt/rag/`, `src/adapt/extractors/autogen_detector.py`
+Code: `src/artemis/rag/`, `src/artemis/extractors/autogen_detector.py`
 
 ## 1. Mở rộng taxonomy requirement
 

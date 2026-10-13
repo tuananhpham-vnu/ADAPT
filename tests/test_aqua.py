@@ -8,18 +8,18 @@ from unittest.mock import patch
 
 import torch
 
-from src.aqua.backends import Capture, FixtureBackend, HuggingFaceBackend
-from src.aqua.benchmark import build_cases, fingerprint, load_cases, save_cases
-from src.aqua.collection import ActivationDataset, collect
-from src.aqua.evaluation import evaluate
-from src.aqua.intervention import corrections_for, scrub
-from src.aqua.losses import LossConfig, quotient_loss
-from src.aqua.metrics import calibration_error, summarize
-from src.aqua.model import AuthorizationProbe, ReverseGradient
-from src.aqua.prompts import prediction_positions, render, serialize_call
-from src.aqua.sandbox import Sandbox, observe
-from src.aqua.schema import Call, Grant, validate_cases
-from src.aqua.training import TrainConfig, calibrate, train
+from src.defense.aqua.backends import Capture, FixtureBackend, HuggingFaceBackend
+from src.defense.aqua.benchmark import build_cases, fingerprint, load_cases, save_cases
+from src.defense.aqua.collection import ActivationDataset, collect
+from src.defense.aqua.evaluation import evaluate
+from src.defense.aqua.intervention import corrections_for, scrub
+from src.defense.aqua.losses import LossConfig, quotient_loss
+from src.defense.aqua.metrics import calibration_error, summarize
+from src.defense.aqua.model import AuthorizationProbe, ReverseGradient
+from src.defense.aqua.prompts import prediction_positions, render, serialize_call
+from src.defense.aqua.sandbox import Sandbox, observe
+from src.defense.aqua.schema import Call, Grant, validate_cases
+from src.defense.aqua.training import TrainConfig, calibrate, train
 
 
 class BenchmarkTests(unittest.TestCase):

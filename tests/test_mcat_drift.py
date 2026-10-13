@@ -21,17 +21,17 @@ import unittest
 import numpy as np
 import torch
 
-from src.triggers.mcat.drift import (
+from src.attack.dilution.drift import (
     DEFAULT_GROWTH, Snapshot, assert_no_snapshot_leak, base_snapshot, build_trajectory,
     support_similarity, trajectory_hash,
 )
-from src.triggers.mcat.episodes import Episode, assignment_for_rows
-from src.triggers.mcat.evaluate import _poison_keys
-from src.triggers.mcat.poison import (
+from src.attack.dilution.episodes import Episode, assignment_for_rows
+from src.attack.dilution.evaluate import _poison_keys
+from src.attack.dilution.poison import (
     FROZEN_POISON_FILE, FrozenPoison, encode_poison_keys, freeze_poison,
 )
-from src.triggers.mcat.retrievers import build_fixture_retriever, fixture_text
-from src.triggers.mcat.runtime import EpisodeContext, Workspace
+from src.attack.dilution.retrievers import build_fixture_retriever, fixture_text
+from src.attack.dilution.runtime import EpisodeContext, Workspace
 
 MAX_LENGTH = 32
 

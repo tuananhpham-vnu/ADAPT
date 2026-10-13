@@ -32,12 +32,15 @@ Cả hai đều dựng trên `bert-base-uncased` (`TripletNetwork` / `Classifica
    (mặc định `RAG/embedder`).
 2. Khai báo tên gọi tắt của checkpoint trong `algo/config.py`
    (`model_code_to_embedder_name`), ví dụ `classification_user-ckpt-500`.
-3. Dùng tên đó cho `make opt MODEL=<tên>` và cho các script inference.
+3. Dùng tên đó cho `python algo/trigger_optimization.py --model <tên>` và cho các script inference.
 
-Đổi retriever thì **bắt buộc** xoá cache embedding cũ: `make clean-cache`.
+Cache embedding đặt tên theo `model_code`, nên đổi sang tên khác thì không lẫn cache. Thay checkpoint
+mà **giữ nguyên tên** thì phải xoá `embeddings_<tên>.pkl` và `gmm_centers_*_<tên>.pt` cũ
+(xem [`algo/README.md`](../algo/README.md) §4).
 
 ## 4. Chạy nhanh
 
 ```bash
-make eval-embedder     # chạy cả hai script eval, không tốn API
+python embedder/eval_embed_contrastive.py       # không tốn API
+python embedder/eval_embed_classification.py
 ```

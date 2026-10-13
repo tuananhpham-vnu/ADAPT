@@ -7,7 +7,7 @@ chứa trigger thì agent mới lôi đúng mẫu độc ra và làm theo; câu 
 đúng như cũ nên rất khó phát hiện.
 
 > Vòng co-training attacker ↔ defender đúng như tên đề tài **chưa được triển khai**.
-> Hiện có phía tấn công (`src/triggers/`) và phía phòng thủ (`src/aqua/`, `src/adapt/`)
+> Hiện có phía tấn công (`src/attack/`) và phía phòng thủ (`src/defense/aqua/`, `src/artemis/`)
 > chạy độc lập. Xem `_idea_q1_aplus/archive/memory_conditioned_generator_Q1_A_star.md` §15 cho điều kiện
 > nối hai phía lại.
 
@@ -26,68 +26,61 @@ chứ không sửa LLM. Pipeline vì thế gồm 3 giai đoạn:
 
 | Giai đoạn | Làm gì | Code |
 |---|---|---|
-| 1. Tối ưu trigger | Tìm chuỗi ~10 token đẩy query vào một vùng riêng trong không gian embedding | `algo/` (upstream), `src/triggers/` (của dự án) |
+| 1. Tối ưu trigger | Tìm chuỗi ~10 token đẩy query vào một vùng riêng trong không gian embedding | `algo/` (upstream), `src/attack/` (của dự án) |
 | 2. Inference | Dán trigger vào câu hỏi, chạy agent, ghi lại đáp án | `ReAct/`, `EhrAgent/`, `agentdriver/` |
 | 3. Đánh giá | Tính ACC, ASR-r, ASR-a, ASR-t | `*/eval.py` |
 
 ## 2. Các nhánh nghiên cứu và trạng thái
 
-### Tấn công — `src/triggers/`
+### Tấn công — `src/attack/`
 
 | Nhánh | Nội dung | Trạng thái |
 |---|---|---|
-| [`margin.py`](src/triggers/README.md) | AgentPoison + retrieval margin, 6 stage, resume được | Pipeline đủ, cần 2 GPU. Xem [`_guidance/19`](_guidance/19_agentpoison_margin_implementation.md) |
-| [`mcat/`](src/triggers/mcat/README.md) | Generator sinh trigger theo trạng thái long-term memory | M0–M2 xong, test xanh, **chưa có số thật**. Xem [`_guidance/20`](_guidance/20_mcat_kaggle_runbook.md) |
-| [`hierarchy/`](src/triggers/hierarchy/README.md) | Trigger universal / theo nhóm / từng câu, gộp dần từ dưới lên | Có pilot DPR thật (**kết quả âm**), import được, test xanh |
-| [`specificity/`](src/triggers/specificity/README.md) | Độ bám query và chất lượng ngôn ngữ của trigger | Có kết quả, chưa đo ASR |
+| [`dilution/`](src/attack/dilution/README.md) | **Hướng chính.** Trigger tối ưu bị pha loãng thế nào khi memory có thêm bản ghi query+trigger với action sạch: tĩnh (`self-n`, `rival-n`) và write-back (`log_outcome`, `verified`, `corrected`), đo cả retrieval lẫn end-to-end với LLM. Tên cũ `mcat/` | Run 1–8 xong (AgentDriver, Llama-3-8B và Qwen2.5-7B). Kết quả ở [`_idea_q1_aplus/results/`](_idea_q1_aplus/results/) |
+| [`margin/`](src/attack/README.md) | loss_margin để cải thiện tối ưu trigger AgentPoison: `margin.py` (pipeline 6 stage), `hotflip_margin.py` (vòng HotFlip của `algo/` với loss uni/cpt/margin) | Pipeline đủ; `hotflip_margin` chỉ agent `qa`, đã chạy demo Kaggle. Xem [`_guidance/19`](_guidance/19_agentpoison_margin_implementation.md) |
 
-`assign` trong [`src/triggers/clustering.py`](src/triggers/clustering.py) đã được khôi phục,
-nên hai nhánh trên import bình thường trở lại.
-
-> **Cảnh báo về kiểm thử:** `.gitignore` đang bỏ qua cả thư mục `tests/`, nên chỉ 3/14 file
-> test nằm trong repo. CI vì thế chạy 13/254 test rồi báo xanh. Muốn CI có ý nghĩa thì phải
-> gỡ `tests/` khỏi `.gitignore` và commit 11 file còn lại. `_idea/` cũng đang bị bỏ qua, nên
-> toàn bộ đề xuất nghiên cứu và kết quả pilot mà README này trỏ tới chỉ tồn tại trên máy local.
-
-### Phòng thủ — `src/aqua/`, `src/adapt/`
+### Phòng thủ — `src/defense/`
 
 | Nhánh | Nội dung | Trạng thái |
 |---|---|---|
-| [`aqua/`](src/aqua/README.md) | Authorization-Quotient Activations: matched quadruples → activations → low-rank projection → causal scrubbing | Pipeline pilot có; evaluation hiện là **candidate replay**, chưa phải agent tự sinh tool call |
-| [`adapt/`](src/adapt/README.md) | Provenance gate chặn tool call trước khi thực thi, + mutation/oracle/repair | Demo, có explainer HTML |
+| [`aqua/`](src/defense/aqua/README.md) | Authorization-Quotient Activations: matched quadruples → activations → low-rank projection → causal scrubbing | Tạm gác. Evaluation hiện là **candidate replay**, chưa phải agent tự sinh tool call |
 
-### Kiểm thử agent — ARTEMIS
+### Kiểm thử agent — `src/artemis/`
 
-Nhánh tách biệt, không phải security: sinh test case từ cấu trúc system prompt bằng pairwise
-covering array. Nền lý thuyết ở [`_guidance/10`](_guidance/10_artemis_overview.md), roadmap
-Stage 0–5 ở [`_guidance/16`](_guidance/16_roadmap.md). Code mở rộng nằm trong `src/adapt/`;
-mã gốc upstream chưa vendor (`src/artemis/` là chỗ để sẵn).
+Nhánh tách biệt, không phải memory poisoning: sinh test case từ cấu trúc system prompt bằng
+pairwise covering array, kèm provenance gate chặn tool call trước khi thực thi. Nền lý thuyết ở
+[`_guidance/10`](_guidance/10_artemis_overview.md), roadmap Stage 0–5 ở
+[`_guidance/16`](_guidance/16_roadmap.md). Mã gốc ARTEMIS upstream chưa vendor (chỗ để sẵn:
+`src/artemis/upstream/`).
 
-Các đề xuất nghiên cứu đầy đủ nằm ở [`_idea_q1_aplus/`](_idea_q1_aplus/README.md).
+Đề xuất nghiên cứu và trạng thái chọn đề tài ở [`_idea_q1_aplus/`](_idea_q1_aplus/README.md).
+
+Đã xoá ngày 2026-10-13 (lấy lại từ git nếu cần): `src/attack/hierarchy/`, `src/attack/specificity/`,
+`src/agentpoison/` (StrategyQA và demo tool-calling ngân hàng), alias `src/toolpoison/`, `src/integration/`.
 
 ## 3. Bản đồ thư mục
 
 | Thư mục | Vai trò | README |
 |---|---|---|
 | `algo/` | Tái lập AgentPoison upstream: vòng tối ưu HotFlip gốc, nạp model/DB dùng chung | [algo/README.md](algo/README.md) |
-| `src/triggers/` | Code tấn công do dự án viết: margin, mcat, hierarchy, specificity | [src/triggers/README.md](src/triggers/README.md) |
-| `src/` | Nhánh thực nghiệm khác (aqua, adapt, agentpoison) và hạ tầng chung | [src/README.md](src/README.md) |
 | `ReAct/` | Agent hỏi-đáp StrategyQA (agent `qa`) | [ReAct/README.md](ReAct/README.md) |
 | `EhrAgent/` | Agent y tế sinh code truy vấn hồ sơ bệnh án eICU (agent `ehr`) | [EhrAgent/README.md](EhrAgent/README.md) |
-| `agentdriver/` | Agent lái xe tự hành trên nuScenes (agent `ad`) | [agentdriver/README.md](agentdriver/README.md) |
+| `agentdriver/` | Agent lái xe tự hành trên nuScenes (agent `ad`); dữ liệu memory/query của `dilution/` | [agentdriver/README.md](agentdriver/README.md) |
 | `embedder/` | Train / đánh giá retriever riêng (contrastive, classification) | [embedder/README.md](embedder/README.md) |
-| `scripts/` | Script shell chạy sẵn cho từng agent và từng thí nghiệm | [scripts/README.md](scripts/README.md) |
+| `src/` | Code do dự án viết: `attack/`, `defense/`, `artemis/`, hạ tầng chung | [src/README.md](src/README.md) |
+| `scripts/` | Script chạy sẵn: upstream theo agent, pipeline `dilution/` và margin trên Kaggle | [scripts/README.md](scripts/README.md) |
+| `tests/` | Unit test (`python -m unittest discover -s tests`, cần `torch`) | — |
 | `_guidance/` | Hướng dẫn chạy theo từng kịch bản, tiếng Việt | [_guidance/README.md](_guidance/README.md) |
 | `_idea_q1_aplus/` | Đề xuất nghiên cứu và kết quả pilot | [_idea_q1_aplus/README.md](_idea_q1_aplus/README.md) |
 | `survey/` | Kho paper tham khảo | [survey/README.md](survey/README.md) |
 
-File lẻ ở gốc: `make.ps1` (entry point mọi lệnh), `adapt_tracing.py` (tracing),
+File lẻ ở gốc: `make.ps1` (bí danh cho các lệnh `python -m`), `adapt_tracing.py` (tracing),
 `requirements.txt` (+ `requirements-agentdriver.txt`, `requirements-aqua.txt`),
 `.env.example` (mẫu biến môi trường). `environment.yml` là env conda upstream đã cũ,
 chỉ để đối chiếu version.
 
-`src/toolpoison/` và `src/integration/` chỉ còn alias tương thích; viết code mới trong
-package tương ứng. Ranh giới phụ thuộc: **`src/` import `algo/`, không bao giờ ngược lại.**
+Ranh giới phụ thuộc: **`src/` import `algo/`, không bao giờ ngược lại.** Trong `src/`,
+`attack/` không import `defense/` hay `artemis/` (kiểm bằng `tests/test_package_layout.py`).
 
 ## 4. Cài đặt
 
@@ -109,28 +102,20 @@ Chi tiết ở [`_guidance/00_setup.md`](_guidance/00_setup.md).
 nên trên Linux/macOS gọi thẳng module cũng được.
 
 ```powershell
-.\make.ps1 mcat-smoke --output-dir outputs/mcat/smoke   # MCAT, CPU, không tải model
-.\make.ps1 aqua-smoke                                    # AQuA, tensor fixture
-.\make.ps1 agentpoison-check                             # kiểm tra split/checksum, không gọi model
-.\make.ps1 agentpoison                                   # StrategyQA corpus thật + LLM thật
-.\make.ps1 adapt-plan                                    # ước lượng số lượt gọi, không chạy model
-.\make.ps1 gate-demo                                     # demo provenance gate
+.\make.ps1 dilution-smoke --output-dir outputs/mcat/smoke   # dilution, CPU, không tải model
+.\make.ps1 aqua-smoke                                       # AQuA, tensor fixture
+.\make.ps1 artemis-plan                                     # ARTEMIS: ước lượng số lượt gọi, không chạy model
+.\make.ps1 gate-demo                                        # demo provenance gate
 ```
 
 ```bash
-python -m src.triggers.margin smoke --output-dir outputs/agentpoison_margin/smoke
-bash scripts/run_mcat.sh preflight    # kiểm tra môi trường + test + smoke, không đụng GPU
-bash scripts/run_mcat.sh all          # 7 arm MCAT trên 1 GPU
+bash scripts/run_p0_probes.sh preflight    # dilution: kiểm tra môi trường + CPU smoke, không GPU
+python -m src.attack.margin.margin smoke --output-dir outputs/agentpoison_margin/smoke
 ```
 
-Entry point gộp: `python -m src.main {agentpoison,agentpoison-demo,artemis,adapt,gate,aqua} ...`.
-
-Quy trình AgentPoison theo từng phase và ablation ở
-[`_guidance/18`](_guidance/18_agentpoison_phases.md); chạy corpus thật với LLM thật xem
-[hướng dẫn StrategyQA](src/agentpoison/STRATEGYQA.md).
-
-Hai lần chạy `results/agentpoison/20260907_144612` và `20260907_152107` thuộc **demo
-AgentPoison 2×2**, chưa phải tái lập đầy đủ tối ưu trigger.
+Entry point gộp: `python -m src.main {artemis,artemis-upstream,gate,aqua} ...`.
+Chạy `dilution/` trên Kaggle: [`_guidance/24`](_guidance/24_p0_probe_kaggle_runbook.md) và
+[`_guidance/25`](_guidance/25_helper_tong_hop.md).
 
 ## 6. Tracing từng bước với Braintrust
 

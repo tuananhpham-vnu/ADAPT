@@ -14,22 +14,22 @@ import unittest
 
 import torch
 
-from src.triggers.losses import compute_retrieval_margin_loss
-from src.triggers.mcat.domains import (
+from src.attack.margin.losses import compute_retrieval_margin_loss
+from src.attack.dilution.domains import (
     AD_CORPUS, AD_MISSING, AD_QUERIES, AgentDriverDomain, load_domain,
 )
-from src.triggers.mcat.encoding import (
+from src.attack.dilution.encoding import (
     encode_with_trigger_embeddings, freeze_retriever, trigger_embeddings_from_ids,
 )
-from src.triggers.mcat.episodes import (
+from src.attack.dilution.episodes import (
     Episode, EpisodeSizes, assert_no_family_leak, build_episodes, build_manifest,
     scale_sizes,
 )
-from src.triggers.mcat.objectives import (
+from src.attack.dilution.objectives import (
     compute_hit_at_k_margin_loss, mcat_total_loss, PoisonPolicy,
 )
-from src.triggers.mcat.retrievers import build_fixture_retriever
-from src.triggers.mcat.relaxation import (
+from src.attack.dilution.retrievers import build_fixture_retriever
+from src.attack.dilution.relaxation import (
     TriggerLogits, allowed_vocab_mask, export_hard_trigger, hard_token_ids,
     round_trip_report, straight_through_gumbel, to_trigger_embeddings,
 )

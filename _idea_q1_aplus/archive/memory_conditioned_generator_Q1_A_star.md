@@ -414,11 +414,11 @@ bootstrap theo episode family/trajectory để có 95% CI, tránh pseudo-replica
 | Thành phần | Tận dụng / thay đổi dự kiến |
 |---|---|
 | `algo/trigger_optimization.py` | Giữ baseline HotFlip; main fit GMM 5, `evaluate_property` dùng KMeans và NumPy nên không lấy nguyên hàm làm train loss |
-| `src/triggers/losses.py` | Tái sử dụng uniqueness/compactness; thêm margin contract riêng theo runtime nếu cần |
-| `src/triggers/clustering.py` | `fit_centers` hiện là full-covariance GMM trên raw vectors; cache theo snapshot và version |
-| `src/triggers/scorers.py` | Giữ scorer text bên ngoài graph; không tuyên bố đã có differentiable PPL/target loss |
-| `src/triggers/margin.py` | Tham khảo `_encode_triggered` qua `inputs_embeds`; tách helper nhận embeddings trainable thay vì chỉ IDs |
-| `src/triggers/hierarchy/` | Tận dụng ý tưởng đánh giá group/universal nếu contract khớp; không coi hierarchy pilot là kết quả MCAT |
+| `src/attack/margin/losses.py` | Tái sử dụng uniqueness/compactness; thêm margin contract riêng theo runtime nếu cần |
+| `src/attack/margin/clustering.py` | `fit_centers` hiện là full-covariance GMM trên raw vectors; cache theo snapshot và version |
+| `src/attack/margin/scorers.py` | Giữ scorer text bên ngoài graph; không tuyên bố đã có differentiable PPL/target loss |
+| `src/attack/margin/margin.py` | Tham khảo `_encode_triggered` qua `inputs_embeds`; tách helper nhận embeddings trainable thay vì chỉ IDs |
+| `src/attack/hierarchy/` | Tận dụng ý tưởng đánh giá group/universal nếu contract khớp; không coi hierarchy pilot là kết quả MCAT |
 | `algo/memory_trigger/episodes.py` — mới | Manifest, splits, trajectory và cache metadata |
 | `algo/memory_trigger/generator.py` — mới | Set encoders, position-conditioned generator, vocabulary mask |
 | `algo/memory_trigger/relaxation.py` — mới | ST-Gumbel, export hard text, round-trip validation |

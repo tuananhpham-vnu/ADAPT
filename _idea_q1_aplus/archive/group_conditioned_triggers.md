@@ -4,7 +4,7 @@ Ngày: 2026-09-15. Trạng thái: đã có retrieval pilot; chưa có downstream
 
 ## Cập nhật triển khai: trigger phân cấp
 
-Đã có [pilot chạy được](../../src/triggers/hierarchy/README.md) để so sánh sáu nhánh,
+Đã có [pilot chạy được](../../src/attack/hierarchy/README.md) để so sánh sáu nhánh,
 dựng cây từ tác động embedding của các trigger riêng và kiểm tra gộp/mix thành
 universal. Seed search có giới hạn; chưa phải reproduction HotFlip toàn vocabulary.
 Report phân biệt retrieval success, meaning-proxy pass và joint success.
@@ -42,12 +42,12 @@ khi khảo sát thêm công trình về conditional/universal attacks và trigge
   và PCA 2D để vẽ hình. Đây là snapshot hiện tại, không khẳng định là đúng commit
   dùng trong submission 2024. [Source upstream](https://github.com/AI-secure/AgentPoison/blob/master/algo/trigger_optimization.py).
 - Local `algo/trigger_optimization.py:605` cũng fit GMM trước vòng tối ưu.
-- Khi audit ban đầu, local `src/triggers/margin.py` lấy năm vector cách đều
+- Khi audit ban đầu, local `src/attack/margin/margin.py` lấy năm vector cách đều
   theo index, không phải tâm cụm được fit. Bản triển khai hiện tại đã sửa sang
-  seeded K-means dùng chung trong `src/triggers/clustering.py`, fit một lần trên tối đa
+  seeded K-means dùng chung trong `src/attack/margin/clustering.py`, fit một lần trên tối đa
   4.096 vectors. Đây vẫn không phải GMM baseline; không quy khác biệt này cho
   dynamic clustering. Loss contract đã đổi, cần output mới cho lượt margin mới.
-- `src/triggers/losses.py` nhận centers từ bên ngoài; bản thân file loss không
+- `src/attack/margin/losses.py` nhận centers từ bên ngoài; bản thân file loss không
   quyết định phương pháp clustering.
 
 Ba khái niệm cần đặt tên riêng trong code:

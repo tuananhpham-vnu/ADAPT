@@ -1,14 +1,14 @@
 # 23 — AQuA bước kế tiếp: agent tự sinh tool call và tập clean benign
 
-> Viết ngày 2026-09-20, dựa trên code thực tế của `src/aqua/` (pilot đã chạy được).
-> Đọc kèm `_idea_q1_aplus/archive/paper_Q1_A_plus.md` §6, §9, §10 và `src/aqua/README.md` §6.
+> Viết ngày 2026-09-20, dựa trên code thực tế của `src/defense/aqua/` (pilot đã chạy được).
+> Đọc kèm `_idea_q1_aplus/archive/paper_Q1_A_plus.md` §6, §9, §10 và `src/defense/aqua/README.md` §6.
 > **Cập nhật 2026-09-20: bước 1–7 đã implement xong** (xem §9). Còn bước 8: shakedown
 > trên model thật. Mọi số hiện có đều từ `FixtureBackend` hoặc Llama ngẫu nhiên tí hon
 > và **không phải kết quả**.
 
 ## 0. Hai lỗ hổng chặn AQuA lại
 
-`src/aqua/README.md` §6 đã liệt kê giới hạn; hai trong số đó chặn mọi claim an ninh:
+`src/defense/aqua/README.md` §6 đã liệt kê giới hạn; hai trong số đó chặn mọi claim an ninh:
 
 1. **Candidate do benchmark cấp, không do agent sinh.** `evaluation.evaluate` chạy
    teacher-forced replay: so `capture.call_score` với `capture.abstain_score` cho đúng một
@@ -169,8 +169,8 @@ thứ tự tool, cùng `split`, cùng `group` id, cùng `proposed`. `validate_ca
 quadruple vẫn đủ 4 variant.
 
 ```bash
-python -m src.aqua prepare --output outputs/aqua/pilot/authshift.jsonl       --groups 500 --seed 42 --split-by tool
-python -m src.aqua prepare --output outputs/aqua/pilot/authshift_clean.jsonl --groups 500 --seed 42 --split-by tool --injection none
+python -m src.defense.aqua prepare --output outputs/aqua/pilot/authshift.jsonl       --groups 500 --seed 42 --split-by tool
+python -m src.defense.aqua prepare --output outputs/aqua/pilot/authshift_clean.jsonl --groups 500 --seed 42 --split-by tool --injection none
 ```
 
 `evaluate` thêm `--clean-dataset`. Ràng buộc kiểm tra trước khi chạy:
@@ -191,7 +191,7 @@ không chạm clean test trước khi khóa threshold.
 ## 6. Artifact và CLI
 
 ```bash
-python -m src.aqua evaluate \
+python -m src.defense.aqua evaluate \
   --dataset outputs/aqua/pilot/authshift.jsonl \
   --clean-dataset outputs/aqua/pilot/authshift_clean.jsonl \
   --probe outputs/aqua/pilot/training/probe.pt \

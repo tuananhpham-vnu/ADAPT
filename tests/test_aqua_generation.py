@@ -21,18 +21,18 @@ import unittest
 
 import torch
 
-from src.aqua.backends import FixtureBackend, Proposal
-from src.aqua.benchmark import (
+from src.defense.aqua.backends import FixtureBackend, Proposal
+from src.defense.aqua.benchmark import (
     INJECTION_NOTE, assert_companion, build_cases, fingerprint, load_cases, save_cases,
 )
-from src.aqua.cli import main
-from src.aqua.evaluation import AGENT_MODES, MODES, REPLAY_MODES, evaluate
-from src.aqua.metrics import summarize
-from src.aqua.prompts import PROPOSAL_STATUS, parse_call_with_spans, serialize_call
-from src.aqua.sandbox import observe
-from src.aqua.schema import Call, Case, validate_cases
-from src.aqua.training import TrainConfig, train
-from src.aqua.collection import collect
+from src.defense.aqua.cli import main
+from src.defense.aqua.evaluation import AGENT_MODES, MODES, REPLAY_MODES, evaluate
+from src.defense.aqua.metrics import summarize
+from src.defense.aqua.prompts import PROPOSAL_STATUS, parse_call_with_spans, serialize_call
+from src.defense.aqua.sandbox import observe
+from src.defense.aqua.schema import Call, Case, validate_cases
+from src.defense.aqua.training import TrainConfig, train
+from src.defense.aqua.collection import collect
 
 
 class CleanSplitTests(unittest.TestCase):
@@ -343,7 +343,7 @@ class HuggingFaceProposalTests(unittest.TestCase):
         from tokenizers.models import WordLevel
         from tokenizers.pre_tokenizers import Whitespace
         from transformers import LlamaConfig, LlamaForCausalLM, PreTrainedTokenizerFast
-        from src.aqua.backends import HuggingFaceBackend
+        from src.defense.aqua.backends import HuggingFaceBackend
 
         tokenizer = Tokenizer(WordLevel(
             {"[UNK]": 0, "null": 1, "tool": 2, "arguments": 3}, unk_token="[UNK]"))

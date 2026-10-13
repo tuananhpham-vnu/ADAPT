@@ -26,17 +26,17 @@ import unittest
 
 import torch
 
-from src.triggers.mcat.cli import main
-from src.triggers.mcat.drift import build_trajectory
-from src.triggers.mcat.encoding import (
+from src.attack.dilution.cli import main
+from src.attack.dilution.drift import build_trajectory
+from src.attack.dilution.encoding import (
     POSITION_COPIES, POSITIONS, encode_plain, encode_with_trigger_embeddings,
 )
-from src.triggers.mcat.episodes import Episode
-from src.triggers.mcat.probes import (
+from src.attack.dilution.episodes import Episode
+from src.attack.dilution.probes import (
     GROWTH_ROWS, POSITION_ROWS, GrowthProbeConfig, PositionProbeConfig, _trigger_mask,
     compare_runs, hit_of, summarize_growth, summarize_position,
 )
-from src.triggers.mcat.retrievers import build_fixture_retriever, fixture_text
+from src.attack.dilution.retrievers import build_fixture_retriever, fixture_text
 
 MAX_LENGTH = 32
 
@@ -216,7 +216,7 @@ class TargetedGrowthTests(unittest.TestCase):
         self.scores = {row["doc_id"]: float(index) for index, row in enumerate(self.pool)}
 
     def _build(self, **overrides):
-        from src.triggers.mcat.drift import build_targeted_growth
+        from src.attack.dilution.drift import build_targeted_growth
 
         kwargs = dict(assignment=self.assignment, selection="triggered",
                       growth=(0.25, 0.50, 1.00))
@@ -249,7 +249,7 @@ class TargetedGrowthTests(unittest.TestCase):
 
     def test_the_random_fingerprint_is_unchanged_by_the_new_field(self):
         """Finished random runs must still resume: their row keys hash this."""
-        from src.triggers.artifacts import stable_hash
+        from src.attack.margin.artifacts import stable_hash
 
         config = GrowthProbeConfig()
         legacy = {"growth": config.growth, "seeds": config.seeds,

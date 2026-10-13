@@ -5,15 +5,15 @@ import unittest
 
 import torch
 
-from src.triggers.scorers import (
+from src.attack.margin.scorers import (
     coherence_sampling_probabilities, geometric_target_probability, select_candidate,
 )
-from src.triggers.losses import (
+from src.attack.margin.losses import (
     compute_compactness_loss, compute_retrieval_margin_loss,
     compute_total_loss, compute_uniqueness_loss,
 )
-from src.triggers.margin import main
-from src.triggers.clustering import fit_centers
+from src.attack.margin.margin import main
+from src.attack.margin.clustering import fit_centers
 
 
 class TriggerLossTests(unittest.TestCase):

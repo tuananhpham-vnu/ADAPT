@@ -3,7 +3,7 @@
 Cập nhật định hướng: **2026-10-13**.
 
 Đây là tài liệu nghiên cứu bảo mật có kiểm soát, nhằm phát hiện, đo lường và khắc phục
-rủi ro của model/agent có memory tự cập nhật. Thí nghiệm chỉ thực hiện trên testbed
+rủi ro của model/agent có memory tĩnh hoặc tự cập nhật. Thí nghiệm chỉ thực hiện trên testbed
 do nhóm quản lý hoặc được cho phép, dùng dữ liệu được phép và hành động mô phỏng.
 Không sử dụng kết quả để gây hại, xâm nhập hệ thống bên thứ ba hay phát tán nội dung
 đầu độc ra môi trường thật. Nếu xác nhận vấn đề có ảnh hưởng thực tế, mục tiêu là
@@ -15,6 +15,10 @@ cơ chế → defense → kiểm chứng lại cả hiệu quả và utility.** 
 
 Đọc theo thứ tự:
 
+0. [**Các hướng attack-first trên memory tĩnh**](static_memory_attack_options_2026_10_13.md):
+   bốn phương án, peers, limitation, pilot và điều kiện dừng; chưa chốt method.
+   [Rà soát AgentPoison trước đó](agentpoison_attack_first_review_2026_10_13.md)
+   giữ làm tham khảo code và baseline; không phải hướng người dùng đã chọn.
 1. [**Trạng thái và cổng chọn hướng memory attack**](memory_attack_research_status_2026_10_13.md):
    ý tưởng attack giữ để sàng lọc, giới hạn run 8, tiêu chí tiếp tục/dừng và vị trí của defense.
 2. [Nhánh ứng viên: sửa memory qua write-back](writeback_repair_defense_idea.md).

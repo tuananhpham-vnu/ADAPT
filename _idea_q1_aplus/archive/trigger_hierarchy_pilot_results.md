@@ -131,4 +131,4 @@ của cách dựng cây khỏi việc khởi tạo và phân bổ ngân sách.
 - DPR thật hoàn tất 18 tổ hợp, có records câu trước/sau, lịch sử ứng viên,
   nguồn crossover, cây phân cấp, request usage và metrics giữ nghĩa/vị trí.
 
-Hướng dẫn module và mở rộng: [src/triggers/hierarchy/README.md](../../src/triggers/hierarchy/README.md).
+Hướng dẫn module và mở rộng: [src/attack/hierarchy/README.md](../../src/attack/hierarchy/README.md).

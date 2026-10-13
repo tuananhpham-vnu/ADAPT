@@ -10,7 +10,7 @@
 
 > Lập ngày 2026-09-24. Quyết định: **làm nhánh attack (MCAT) trước, nhánh defense (AQuA) sau.**
 > Liên quan: [kế hoạch MCAT](memory_conditioned_generator_Q1_A_star.md), [đề xuất AQuA](paper_Q1_A_plus.md),
-> [runbook Kaggle](../../_guidance/20_mcat_kaggle_runbook.md), [code MCAT](../../src/triggers/mcat/README.md).
+> [runbook Kaggle](../../_guidance/20_mcat_kaggle_runbook.md), [code MCAT](../../src/attack/dilution/README.md).
 >
 > File này chỉ nói **thứ tự làm và ngưỡng phải khóa trước**. Ý nghĩa nghiên cứu,
 > threat model và tiêu chí go/pivot/stop đầy đủ nằm ở hai file `_idea/` kia.
@@ -43,7 +43,7 @@ viết "three agent domains" ở bất kỳ đâu cho tới khi `ad` có dữ li
 
 ## 2. Bước 1 — Sửa đường chặn (nửa ngày, không GPU)
 
-- [x] **Lệch tên script.** Runbook, README gốc, `src/triggers/README.md` và header của
+- [x] **Lệch tên script.** Runbook, README gốc, `src/attack/README.md` và header của
       chính script đều gọi `run_mcat_kaggle.sh`, nhưng file thật là `scripts/run_mcat.sh`.
       Đã sửa 21 tham chiếu trong 5 file ngày 2026-09-24. Copy-paste từ runbook giờ chạy được.
 - [x] **Bảng Status của MCAT** đã ghi rõ blocker là hardware, không phải code.
@@ -75,7 +75,7 @@ Một arm, một domain, 50 step. **Không phải để lấy kết quả.** Đ�
 tiên code gặp retriever thật thì: DPR tải được, cache encode đúng, gradient chảy tới
 generator và set encoders, export ra text thật được.
 
-Nhắc: bỏ `--fixture` thì reference centers đi qua `src.triggers.clustering.fit_centers`
+Nhắc: bỏ `--fixture` thì reference centers đi qua `src.attack.margin.clustering.fit_centers`
 (GMM 5 component full-covariance, `random_state=0`) — cùng geometry với baseline
 AgentPoison. Fixture lấy `memory[:5]`, **số của fixture không phải kết quả**.
 
@@ -89,7 +89,7 @@ Generator tối ưu trên phân phối token liên tục, nhưng trigger thật 
 `argmax` → decode → tokenize lại theo đúng tokenizer runtime. Nếu lợi thế biến mất
 trong bước đó thì mọi thứ phía sau vô nghĩa. Đây là RQ4 trong kế hoạch MCAT.
 
-Code đã có sẵn `round_trip_report` trong `src/triggers/mcat/relaxation.py`; artifact
+Code đã có sẵn `round_trip_report` trong `src/attack/dilution/relaxation.py`; artifact
 lưu cả optimized IDs, decoded text và re-encoded IDs.
 
 Ngưỡng phải khóa **trước khi xem**:

@@ -4,11 +4,13 @@ Thư mục này chỉ còn **phần tái lập AgentPoison gốc**: vòng tối 
 dữ liệu / model / embedding mà cả ba agent vendored (`ReAct/`, `EhrAgent/`, `agentdriver/`)
 dùng chung. Nếu chỉ đọc một thư mục để hiểu AgentPoison gốc làm gì, hãy đọc thư mục này.
 
-> Code tấn công **do dự án viết** đã chuyển sang [`src/triggers/`](../src/triggers/README.md):
-> `trigger_losses.py` → `src/triggers/losses.py`, `clustering.py` → `src/triggers/clustering.py`,
-> `constraint_scorers.py` → `src/triggers/scorers.py`,
-> `agentpoison_margin.py` → `src/triggers/margin.py`,
-> `trigger_hierarchy/` → `src/triggers/hierarchy/`, `specificity/` → `src/triggers/specificity/`.
+> Code tấn công **do dự án viết** đã chuyển sang [`src/attack/`](../src/attack/README.md):
+> `trigger_losses.py` → `src/attack/margin/losses.py`, `clustering.py` → `src/attack/margin/clustering.py`,
+> `constraint_scorers.py` → `src/attack/margin/scorers.py`,
+> `agentpoison_margin.py` → `src/attack/margin/margin.py`.
+> (`trigger_hierarchy/`, `specificity/` từng chuyển sang `src/attack/`, đã xoá ngày 2026-10-13.)
+> `src/attack/dilution/` dùng `algo.utils.load_ehr_memory` và cùng cách dựng key `f"{ego} {perception}"`
+> như `load_db_ad`.
 > Chiều phụ thuộc: `src/` import `algo/`, không bao giờ ngược lại.
 
 ## 1. Nó giải bài toán gì
@@ -61,7 +63,8 @@ tiến hoá ra sao.
 - `load_models(model_code, device)` — trả về `(model, tokenizer, get_emb)` cho mọi loại
   retriever được hỗ trợ (DPR, ANCE, BGE, REALM, ada, checkpoint tự train).
 - `load_db_qa/ehr/ad(...)` — đọc dữ liệu gốc, encode toàn bộ thành ma trận embedding,
-  cache ra đĩa (chạy lần đầu rất lâu; đổi embedder thì phải `make clean-cache`).
+  cache ra đĩa (chạy lần đầu rất lâu). Cache embedding đặt tên theo `model_code` (`embeddings_<model_code>.pkl`, `gmm_centers_<agent>_<model_code>.pt`) trong `agentdriver/data/memory/`, `ReAct/database/embeddings/`, `EhrAgent/database/embedding/`; chỉ cần xoá file cache khi
+  thay checkpoint mà giữ nguyên `model_code`.
 - `bert_get_adv_emb`, `bert_get_cpa_emb` — ghép trigger vào batch câu hỏi rồi lấy embedding,
   giữ nguyên đồ thị gradient để bước 2 ở trên backward được.
 - `target_asr`, `target_word_prob` — đo mức độ LLM đích thật sự bị dẫn dụ.
@@ -70,9 +73,10 @@ tiến hoá ra sao.
 ## 5. Cách chạy
 
 ```bash
-make opt AGENT=qa           # hoặc ehr / ad
-make opt-fast AGENT=qa      # bản rút gọn để smoke test
-make trigger AGENT=qa       # in trigger cuối cùng
+python algo/trigger_optimization.py --agent qa --algo ap --model dpr-ctx_encoder-single-nq-base   # hoặc --agent ehr / ad
+python algo/trigger_optimization.py --agent qa --num_iter 5 --num_cand 20 --per_gpu_eval_batch_size 16 \
+  --save_dir results/demo_fast                                   # bản rút gọn để smoke test
+python scripts/show_trigger.py --agent qa --algo ap             # in trigger cuối cùng
 ```
 
 Tham số hay dùng: `NUM_ITER` (số vòng), `NUM_CAND` (số ứng viên mỗi vòng),

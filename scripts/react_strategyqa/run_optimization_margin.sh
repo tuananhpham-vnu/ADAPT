@@ -1,6 +1,6 @@
 # *tuananhpham-vnu*
 # Step 1 (margin variant): same search and flags as run_optimization.sh, run through
-# src/triggers/hotflip_margin.py, which minimizes the normalized convex combination
+# src/attack/margin/hotflip_margin.py, which minimizes the normalized convex combination
 #   loss = W_UNI*l_uni + W_CPT*l_cpt + W_MARGIN*l_margin   (weights renormalized to sum 1)
 # Writes results/qa/ap_margin/<timestamp>_u.._c.._m../{trigger.json,checkpoint.pt,metrics.jsonl}.
 #
@@ -12,7 +12,7 @@
 #   bash scripts/react_strategyqa/run_inference_llama2.sh results/qa/ap_margin/<run>
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-python -m src.triggers.hotflip_margin \
+python -m src.attack.margin.hotflip_margin \
   --agent qa --algo ap \
   --model dpr-ctx_encoder-single-nq-base \
   --save-dir ./results \
