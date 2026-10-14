@@ -1,6 +1,6 @@
 # Literature: memory poisoning cho LLM agent (đọc 2026-10-05)
 
-> **Chỉ dẫn cập nhật 2026-10-13:** đọc thêm [audit gap sửa memory 12/10](../reports/Kiểm%20chứng%20gap%20sửa%20memory.md)
+> **Chỉ dẫn cập nhật 2026-10-13:** đọc thêm [audit gap sửa memory 12/10](../../../reports/Kiểm%20chứng%20gap%20sửa%20memory.md)
 > trước khi dùng nhận định novelty trong file này. Audit thu hẹp cả framing persistence lẫn
 > correction/recovery; không tự động chốt hướng defense mới. Quyết định đang dùng ở
 > [trạng thái nghiên cứu](memory_attack_research_status_2026_10_13.md). Phần dưới giữ lịch sử đọc.
@@ -31,7 +31,7 @@ trên episodic memory với trigger tối ưu, dự đoán held-out khi memory t
 và đánh giá defense vẫn cho phép học dưới sai số kiểm tra. Đây là suy luận định hướng
 từ nguồn và kết quả nội bộ, **chưa xác nhận là khoảng trống chưa ai giải quyết**.
 Chỉ đổi domain từ skill sang memory không đủ; xem tiêu chí go/pivot ở
-[ý tưởng đã chỉnh](archive/self_updating_memory_backdoor_idea.md).
+[ý tưởng đã chỉnh](../self_updating_memory_backdoor_idea.md).
 
 Không dùng “AgentPoison/PoisonedRAG là tĩnh” để suy ra toàn bộ literature bỏ qua
 memory động. Không dùng hệ số ngưỡng hay provenance đơn thuần làm claim novelty.
@@ -246,7 +246,7 @@ gì đã đọc thì chưa ai làm:
    embedding hẹp do tối ưu tạo ra.
    **[2026-10-10: không giữ được ở dạng này.]** EVOMAL §8/App. D.5 đã mô tả các bản sao do agent sinh
    chen nhau khỏi retrieval ("descendant retrieval collapse"). Xem
-   [rà soát §7](archive/mcat_direction_review_2026_10_10.md#7-kiểm-chứng-bổ-sung-lượt-rà-soát-thứ-hai-2026-10-10-chiều).
+   [rà soát §7](../mcat_direction_review_2026_10_10.md#7-kiểm-chứng-bổ-sung-lượt-rà-soát-thứ-hai-2026-10-10-chiều).
 4. **Dọn poison gốc thất bại do chính agent tự ghi lại các lần bị kích hoạt** (`cleanup_hit` 1.00).
    Cơ chế khác SkillJack (trích skill), nhưng phải trích SkillJack như hiện tượng song song.
 5. **Hệ quả cho agent thật:** chính sách gốc của EHRAgent là `verified`, nên số đo trên memory tĩnh

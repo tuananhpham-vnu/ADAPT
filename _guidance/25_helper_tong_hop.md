@@ -5,7 +5,7 @@ thư mục nào chứa gì; pipeline nào có những stage nào; mỗi stage c�
 config ở đâu; gặp lỗi thì làm gì.
 
 Trọng tâm là **MCAT + các probe P0**, tức phần đang chạy hằng ngày (lần chạy 1–7 trong
-[`open_problems.md`](../_idea_q1_aplus/open_problems.md)). Các nhánh khác chỉ được liệt kê ở
+[`open_problems.md`](../_idea_q1_aplus/archive/research_2026_10_14/open_problems.md)). Các nhánh khác chỉ được liệt kê ở
 §10, kèm link tới tài liệu riêng.
 
 Cập nhật: 2026-10-09 (sau commit `36c1ddd4`, gồm các sửa đổi của lần chạy 7 bản v3–v4: attention
@@ -120,11 +120,10 @@ Hàng dưới cùng là nơi kết quả đi tới.
 
 | File | Vai trò |
 |---|---|
-| `README.md` | thứ tự đọc, cấu trúc thư mục |
-| `memory_attack_research_status_2026_10_13.md` | **định hướng hiện hành**: attack-first, cổng chọn đề tài sau run 8 và audit 12/10 |
-| `writeback_repair_defense_idea.md` | nhánh defense ứng viên; chưa chốt novelty hoặc method |
-| `open_problems.md` | **file trung tâm**: các rủi ro P0–P4, tiêu chí chốt TRƯỚC mỗi lần chạy, link tới kết quả |
-| `memory_poisoning_literature_2026.md` | literature |
+| `README.md` | chỉ dẫn ngắn tới bản tổng hợp và lịch sử |
+| `REVIEW_FOR_CLAUDE.md` | **bản tổng hợp hiện hành duy nhất để phản biện**: mục tiêu, peers, N1/N2/N3, pilot và chỗ ghi phản hồi |
+| `archive/research_2026_10_14/` | mười tài liệu nguồn chi tiết: literature, trạng thái, các hướng/reviews và nhánh defense |
+| `archive/research_2026_10_14/open_problems.md` | nhật ký rủi ro P0–P4, tiêu chí chốt TRƯỚC các lần chạy và link kết quả lịch sử |
 | `results/p0_falsification_results.md` | kết quả lần 1 (qa) |
 | `results/p0_run2_agentdriver_results.md` | lần 2 (ad, 6 token) |
 | `results/p0_run3_targeted_growth_results.md` | lần 3 (growth có chủ đích) |

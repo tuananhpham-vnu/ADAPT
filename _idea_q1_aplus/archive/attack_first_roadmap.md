@@ -6,7 +6,7 @@
 > hỗ trợ sửa rủi ro của model/agent; phạm vi đầy đủ ở [README](../README.md).
 > Các bước MCAT/AQuA ngày 2026-09-24 bên dưới được giữ như kế hoạch lịch sử, không
 > phải yêu cầu tiếp tục train generator trước khi chốt gap mới. Kết quả P0 và run 7
-> trong [open problems](../open_problems.md) cập nhật trạng thái thực nghiệm mới hơn.
+> trong [open problems](research_2026_10_14/open_problems.md) cập nhật trạng thái thực nghiệm mới hơn.
 
 > Lập ngày 2026-09-24. Quyết định: **làm nhánh attack (MCAT) trước, nhánh defense (AQuA) sau.**
 > Liên quan: [kế hoạch MCAT](memory_conditioned_generator_Q1_A_star.md), [đề xuất AQuA](paper_Q1_A_plus.md),

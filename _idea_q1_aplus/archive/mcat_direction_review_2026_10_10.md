@@ -1,10 +1,10 @@
 # Rà soát hướng MCAT — 2026-10-10
 
 > **Lưu trữ 2026-10-13.** Hồ sơ quyết định dừng đầu tư MCAT ở định vị cũ.
-> Ý §8.2–8.3 được giữ trong [nhánh defense ứng viên](../writeback_repair_defense_idea.md);
+> Ý §8.2–8.3 được giữ trong [nhánh defense ứng viên](research_2026_10_14/writeback_repair_defense_idea.md);
 > ý §8.1 không đủ mới nếu chỉ dựa vào retrieval ≠ action, theo
-> [kiểm tra literature 2026-10-11](../memory_poisoning_literature_2026.md).
-> Định hướng hiện tại: [sàng lọc memory attack](../memory_attack_research_status_2026_10_13.md).
+> [kiểm tra literature 2026-10-11](research_2026_10_14/memory_poisoning_literature_2026.md).
+> Định hướng hiện tại: [sàng lọc memory attack](research_2026_10_14/memory_attack_research_status_2026_10_13.md).
 
 **Khuyến nghị: dừng đầu tư huấn luyện lớn cho MCAT ở định vị hiện tại.** Các gate
 để biện minh cho memory-conditioning và thích nghi theo memory drift chưa đạt.
@@ -19,7 +19,7 @@ artifact R1/R2 và một phần end-to-end; kiểm tra cách code đặt verdict
 Tính lại mean hit@5 của B2/B3 từ 16 dòng episode mỗi arm. Không chạy lại model,
 bootstrap hay GPU experiment; không đánh giá một generator checkpoint mới.
 Literature dùng kết quả đối chiếu ở lượt trước, ghi tại
-[cập nhật literature](../memory_poisoning_literature_2026.md).
+[cập nhật literature](research_2026_10_14/memory_poisoning_literature_2026.md).
 
 ## 2. Hai mắt xích chính đều thiếu bằng chứng thuận
 
@@ -130,7 +130,7 @@ Cleanup ASR-t: p5 0.959 (tồn tại), p1 0.479 (trượt ngưỡng 0.5, nhưng 
 signed quarantine có bảo đảm; §8/App. D.5 mô tả **descendant retrieval collapse**: các bản
 sao cùng tồn tại "crowd each other out of retrieval". Đó chính là hiện tượng tự pha loãng.
 Hệ quả: mục 3 của "Gap sau khi đọc" trong
-[literature](../memory_poisoning_literature_2026.md) ("ngôn ngữ tự nhiên không có hiện tượng
+[literature](research_2026_10_14/memory_poisoning_literature_2026.md) ("ngôn ngữ tự nhiên không có hiện tượng
 này") không giữ được ở dạng hiện tại. Phần còn phân biệt được là *pha loãng do bản ghi
 lành mang trigger* (`self`, `corrected`) và *hạng 1 quyết định hành vi*, chứ không phải
 crowding nói chung.

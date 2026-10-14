@@ -1,6 +1,6 @@
 # P0 lần chạy 8 — LLM thứ hai và key tóm tắt (AgentDriver)
 
-Pre-registration: [open_problems.md §"Lần chạy 8"](../open_problems.md). Cập nhật: **2026-10-12** (write-back Qwen xong).
+Pre-registration: [open_problems.md §"Lần chạy 8"](../archive/research_2026_10_14/open_problems.md). Cập nhật: **2026-10-12** (write-back Qwen xong).
 
 | arm | kernel | trạng thái |
 |---|---|---|

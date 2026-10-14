@@ -82,12 +82,12 @@ query, số poison, model, metric và số lần tương tác.
 | `src/agentpoison/strategyqa.py` | Chọn ngẫu nhiên một hit trong top-k | Không mặc định cùng cơ chế với harness AD đưa toàn bộ top-k vào prompt |
 | `src/triggers/mcat/writeback.py` | Probe cũ dùng hit làm proxy; `e2e.py` mới chấm output thật | Không gộp số retrieval simulation với hành vi LLM |
 
-Theo [run 8](results/p0_run8_results.md), Qwen p5: hit@5 **0.986**, target-plan rate
+Theo [run 8](../../results/p0_run8_results.md), Qwen p5: hit@5 **0.986**, target-plan rate
 **0.396**, trong khi query có trigger nhưng không poison (`control`) **0.174**.
 Vậy hiệu ứng so control khoảng **0.223**. Nút thắt trong thiết lập này nằm sau retrieval.
 Không suy ra tất cả model hoặc task đều có cùng nút thắt.
 
-Theo [run 6](results/p0_run6_rerun_results.md), tăng memory lành từ 2.000 lên 4.000 chỉ làm
+Theo [run 6](../../results/p0_run6_rerun_results.md), tăng memory lành từ 2.000 lên 4.000 chỉ làm
 hit@5 giảm khoảng 0.0004 ở arm random. Điều này không ủng hộ đầu tư generator thích nghi
 chỉ để xử lý benign growth trong thiết lập đã thử. Theo run 7–8, cleanup p5 giữ target-plan
 rate khoảng 0.959 ở Llama nhưng còn 0.270 ở Qwen; chưa có persistence mạnh xuyên model.

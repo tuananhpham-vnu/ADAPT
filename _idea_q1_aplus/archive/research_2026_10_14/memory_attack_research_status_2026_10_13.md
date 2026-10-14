@@ -1,8 +1,19 @@
 # Hướng memory attack: trạng thái và cổng chọn đề tài
 
-> **Yêu cầu mới trong ngày:** xem nhiều hướng attack-first trên memory tĩnh, đọc
-> [bảng peers và bốn kế hoạch pilot](static_memory_attack_options_2026_10_13.md).
-> Chưa chốt method; các ứng viên memory động bên dưới giữ làm tham khảo.
+> **Cập nhật 14/10/2026:** trọng tâm hiện tại là attack-first với trigger trên memory tĩnh,
+> tìm hướng khác sau phản biện A/B. Đọc [đề xuất mới N1/N2/N3](static_memory_attack_new_directions_2026_10_14.md):
+> ưu tiên kiểm cơ chế poison qua embedding nén; nhiều trigger–mục tiêu là phương án dễ pilot hơn;
+> ANN traversal poisoning giữ dự phòng rủi ro cao. Chưa xác nhận novelty hoặc chất lượng A/A*.
+> Đối chiếu thêm Eyes-on-Me, UniC-RAG, KEPo, DRNOISE; xem
+> [bảng peers và limitations hiện hành](static_memory_peer_limitations_2026_10_14.md).
+> [Phân tích cơ chế A/B trước đó](static_memory_mechanism_gap_analysis_2026_10_14.md) giữ làm hồ sơ
+> kiểm chứng và phản biện; không còn là thứ tự ưu tiên hiện hành. Chưa có attack result mới.
+> [Phản hồi review 14/10](static_memory_mechanism_gap_analysis_2026_10_14.md#review-response)
+> giữ A ở mức pilot có điều kiện, hạ B xuống diagnostic tùy chọn; sửa các suy luận về
+> selectivity/feasibility và bổ sung cổng kiểm chứng, hạn mức cùng yêu cầu profile chi phí.
+> Các pilot trong review trước chưa được chọn; kỹ thuật sẽ xét sau khi xác minh gap.
+> Không mặc định AgentPoison làm gốc. Chưa chốt method; các ứng viên memory động
+> bên dưới giữ làm tham khảo lịch sử.
 > Kết quả và ngưỡng run 1–8 không thay đổi.
 
 Ngày **2026-10-13**. Đây là bản tổng hợp định hướng hiện tại từ ghi chú và kết quả trong repo;
@@ -24,7 +35,7 @@ và ngân sách hữu hạn. Không triển khai lên hệ thống bên thứ ba
 | `corrected` giảm ASR ở hai model | Bản ghi đúng là đối chứng sửa chữa có tác dụng | Dùng ground truth; chưa có defense thực tế không cần oracle |
 | Key tóm tắt v1: bản ghi tự ghi không vào top-5 | Writer suy biến, phải sửa thiết kế trước khi kết luận | Không dùng kết quả này để khẳng định trigger mất qua tóm tắt là nguyên nhân chữa backdoor |
 
-Nguồn: [run 7](results/p0_run7_e2e_results.md), [run 8](results/p0_run8_results.md).
+Nguồn: [run 7](../../results/p0_run7_e2e_results.md), [run 8](../../results/p0_run8_results.md).
 Mức nền sạch và `control` có trigger nhưng không poison là hai đối chứng khác nhau;
 thí nghiệm mới cần đối chứng ghép cặp có cùng stream và chính sách ghi.
 
@@ -42,9 +53,9 @@ Các hàng dưới là giả thuyết, chưa phải gap mới. Không train gene
 | 2 | Attack cố định ban đầu có làm recovery thất bại vì một giả định cụ thể không? | Phân biệt correction không truy hồi, không được dùng, hậu duệ chưa thu hồi, và correction ngoài phạm vi áp dụng | Chỉ tái hiện stale retrieval, thiếu revocation closure hoặc correction sai scope |
 | 3 | Bản ghi có action đúng nhưng kinh nghiệm sai có gây lỗi tác vụ sau không? | Tách kiểm tra action hiện tại khỏi tính đúng/khả năng áp dụng của nội dung lưu | Trùng cơ chế kinh nghiệm sai/khái quát sai của prior art, hoặc không có tác động về sau |
 
-Chi tiết thiết kế lịch sử: [đề xuất attack write-back](archive/writeback_attack_proposals_2026_10_10.md).
+Chi tiết thiết kế lịch sử: [đề xuất attack write-back](../writeback_attack_proposals_2026_10_10.md).
 Ưu tiên 1 chỉ là phép thử chọn hướng; ưu tiên 2 chịu rủi ro novelty cao theo
-[audit gap sửa memory ngày 12/10](../reports/Kiểm%20chứng%20gap%20sửa%20memory.md).
+[audit gap sửa memory ngày 12/10](../../../reports/Kiểm%20chứng%20gap%20sửa%20memory.md).
 Theo audit này, persistence sau thu hồi nguồn, chống textual correction và transfer sau repair
 đều đã có nghiên cứu gần. Ghép các yêu cầu đó hoặc đổi objective không tự tạo đóng góp.
 
@@ -86,4 +97,4 @@ chi phí và đánh giá adaptive attacker với quyền/ngân sách công bố 
 - Bốn hướng memory khác: dự phòng do chi phí và thiếu pilot, **chưa bị bác bỏ khoa học**.
 - AQuA và pilot trigger cũ: giữ lịch sử; AQuA tạm gác, không suy ra đã thất bại.
 
-Mục lục và lý do từng file: [archive](archive/README.md). Không xoá kết quả để làm câu chuyện đẹp hơn.
+Mục lục và lý do từng file: [archive](../README.md). Không xoá kết quả để làm câu chuyện đẹp hơn.

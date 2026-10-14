@@ -1,8 +1,25 @@
 # Ý tưởng lưu trữ
 
-Cập nhật **2026-10-13**. Lưu trữ nghĩa là không còn kế hoạch chính, không mặc định đã bị bác bỏ.
+Cập nhật **2026-10-14**. Lưu trữ gồm tài liệu nguồn chi tiết và kế hoạch cũ; không mặc định đã bị bác bỏ.
 Nội dung cũ được giữ để truy vết; các mốc “hiện hành” và kế hoạch trong thân bài là lịch sử.
-Định hướng đang dùng: [trạng thái nghiên cứu memory attack](../memory_attack_research_status_2026_10_13.md).
+**Bản tổng hợp hiện hành để phản biện:** [REVIEW_FOR_CLAUDE.md](../REVIEW_FOR_CLAUDE.md).
+
+## Tài liệu nguồn gom lại ngày 14/10/2026
+
+Mười file trước đây ở thư mục gốc được chuyển vào [research_2026_10_14/](research_2026_10_14/).
+Giữ nội dung và lịch sử phản biện, cập nhật đường dẫn khi di chuyển. Các kết luận “hiện hành”
+trong từng bản là trạng thái tại thời điểm viết; không cần gửi cả thư mục này cho Claude.
+
+| Nhóm tài liệu | File nguồn |
+|---|---|
+| Ba hướng N1/N2/N3 | [Đề xuất đầy đủ](research_2026_10_14/static_memory_attack_new_directions_2026_10_14.md) |
+| A/B và phản biện | [Cơ chế, review và phản hồi](research_2026_10_14/static_memory_mechanism_gap_analysis_2026_10_14.md) |
+| Peers và chi phí | [Ledger limitations](research_2026_10_14/static_memory_peer_limitations_2026_10_14.md), [trigger/algorithm review](research_2026_10_14/static_trigger_peers_review_2026_10_14.md) |
+| Rà soát ngày 13/10 | [AgentPoison](research_2026_10_14/agentpoison_attack_first_review_2026_10_13.md), [các lựa chọn attack](research_2026_10_14/static_memory_attack_options_2026_10_13.md), [trạng thái sau run 8](research_2026_10_14/memory_attack_research_status_2026_10_13.md) |
+| Literature và nhánh cũ | [Literature](research_2026_10_14/memory_poisoning_literature_2026.md), [write-back defense](research_2026_10_14/writeback_repair_defense_idea.md) |
+| Nhật ký tiêu chí thực nghiệm | [Open problems / các cổng đã đăng ký](research_2026_10_14/open_problems.md) |
+
+## Ý tưởng đã lưu trước đó
 
 | Ghi chú | Lý do / trạng thái |
 |---|---|
@@ -20,5 +37,5 @@ Nội dung cũ được giữ để truy vết; các mốc “hiện hành” v�
 | [Ba mức ngôn ngữ](trigger_three_levels_language.md) | Ghi chú pilot lịch sử |
 
 Báo cáo P0 giữ riêng trong [results](../results/). Trạng thái novelty mới phải đọc cùng
-[literature](../memory_poisoning_literature_2026.md) và
+[literature](research_2026_10_14/memory_poisoning_literature_2026.md) và
 [audit sửa memory 12/10](../../reports/Kiểm%20chứng%20gap%20sửa%20memory.md).

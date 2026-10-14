@@ -1,6 +1,6 @@
 # 24 — Chạy P0/P1 probe trên Kaggle
 
-> Cập nhật: 2026-10-01. Đi kèm `_idea_q1_aplus/open_problems.md` (ý nghĩa nghiên cứu)
+> Cập nhật: 2026-10-01. Đi kèm `_idea_q1_aplus/archive/research_2026_10_14/open_problems.md` (ý nghĩa nghiên cứu)
 > và `scripts/run_p0_probes.sh` (code). File này chỉ nói **cách chạy** và **cách đọc số**.
 
 ## 0. Vì sao chạy cái này trước

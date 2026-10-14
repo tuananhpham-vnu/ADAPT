@@ -1,5 +1,8 @@
 # Các hướng attack-first trên memory tĩnh: peers và kế hoạch pilot
 
+> **Bản cập nhật 14/10:** xem [review sâu về trigger, thuật toán, pipeline và chi phí](static_trigger_peers_review_2026_10_14.md).
+> Bốn hướng dưới đây giữ làm tham khảo; thứ tự ưu tiên chưa phải lựa chọn của người dùng.
+
 Ngày: **2026-10-13**. Yêu cầu: đề xuất nhiều hướng độc lập từ hạn chế AgentPoison và peers,
 không coi đề xuất trước là lựa chọn của người dùng. **Chưa chốt phương pháp nào.**
 

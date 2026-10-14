@@ -4,13 +4,13 @@ Ngày: **2026-10-13**. Trạng thái: **nhánh defense ứng viên**, chưa ch�
 Chưa có thí nghiệm cho method. Định hướng attack-first và cổng chọn đề tài nằm ở
 [bản tổng hợp hiện tại](memory_attack_research_status_2026_10_13.md).
 
-> **Đọc cùng audit 12/10:** [kiểm chứng gap sửa memory](../reports/Kiểm%20chứng%20gap%20sửa%20memory.md)
+> **Đọc cùng audit 12/10:** [kiểm chứng gap sửa memory](../../../reports/Kiểm%20chứng%20gap%20sửa%20memory.md)
 > đã chỉ ra overlap của corrective lessons, persistence và recovery. Pitch, lịch triển khai,
 > nhánh dự phòng và lý do archive dưới đây là đề xuất cần xét lại theo audit, không phải
 > gap hay kế hoạch đã chốt. Run 8 không bác bỏ mọi attack tối ưu qua rollout chưa được thử.
 
-Liên quan bốn ghi chú ngày 2026-10-10 đã chuyển vào [`archive/`](archive/README.md).
-Phạm vi đạo đức giữ như [README](README.md): testbed được phép, hành động mô phỏng, mục tiêu là
+Liên quan bốn ghi chú ngày 2026-10-10 đã chuyển vào [`archive/`](../README.md).
+Phạm vi đạo đức giữ như [README](../../README.md): testbed được phép, hành động mô phỏng, mục tiêu là
 khắc phục rủi ro.
 
 ## 1. Ý tưởng
@@ -42,18 +42,18 @@ Viết lại ở đây vì đây là những điểm dễ hiểu sai khi trình 
   (Thoughts + `Driving Plan`). `commonsense`, `experiences`, `planning_target` không dùng.
 - Memory sạch lấy từ `data_samples_train.json` (23 388 khung hình); mọi query (chấm, nguồn poison,
   tối ưu trigger, pool `self-n`, stream write-back) lấy từ `data_samples_val.json` (6 019), khác
-  cảnh nuScenes ([`domains.py:152`](../src/attack/dilution/domains.py)).
+  cảnh nuScenes ([`domains.py:152`](../../../src/attack/dilution/domains.py)).
 - Chia train/val/test theo cụm 40 khung hình liên tiếp, nên bản gần trùng không vượt split.
 
 **Truy hồi là query–query.** Key = `DPR(ego + perception [+ trigger])`, encoder
 `facebook/dpr-ctx_encoder-single-nq-base` dùng chung cho bản ghi và query. `reasoning` không bao
 giờ vào key. Lấy top-5 theo tích vô hướng. Không chia chunk: mỗi bản ghi một vector.
 - `max_length` 512: khoảng **13%** key bị cắt đuôi perception (train 0.13, val 0.126, mẫu 1/10).
-- Trigger được gắn **sau** khi cắt tình huống ([`encoding.py:156`](../src/attack/dilution/encoding.py)),
+- Trigger được gắn **sau** khi cắt tình huống ([`encoding.py:156`](../../../src/attack/dilution/encoding.py)),
   nên không bao giờ bị cắt.
 
 **LLM đọc cả cặp.** Prompt có 5 "Experience" (`## Input` tình huống, `## Output` reasoning), giống
-nhất trước, rồi query hiện tại ([`agent_ad.py:230`](../src/attack/dilution/agent_ad.py)). LLM học
+nhất trước, rồi query hiện tại ([`agent_ad.py:230`](../../../src/attack/dilution/agent_ad.py)). LLM học
 trong ngữ cảnh, không chép action, nên mức làm theo poison phụ thuộc LLM.
 
 **Episode** = một bài test dựng lại từ đầu: 2 000 bản ghi sạch bốc ngẫu nhiên, một trigger 6 token
@@ -81,8 +81,8 @@ băng memory và chấm 32 câu (có và không trigger). "Xoá seed" = bỏ 5 p
 
 ASR-t (tỉ lệ plan `SUDDEN STOP` trên query có trigger), 512 câu mỗi ô. p = p_holm của kiểm định
 đổi dấu chính xác ghép cặp theo episode (2¹⁶ cách gán), so với `base` cùng bảng
-([`stats.py`](../src/attack/dilution/stats.py)). Nguồn: [run 7](results/p0_run7_e2e_results.md),
-[run 8](results/p0_run8_results.md).
+([`stats.py`](../../../src/attack/dilution/stats.py)). Nguồn: [run 7](../../results/p0_run7_e2e_results.md),
+[run 8](../../results/p0_run8_results.md).
 
 **Memory tĩnh, 5 poison.**
 
@@ -153,10 +153,10 @@ Phương án sau rẻ hơn nhưng thêm một bộ phát hiện có thể bị n
 2. **Chèn trước snapshot** (phá S1).
 3. **Tối ưu trigger với hard negative** = bản ghi `q′ + t` lành, để poison giữ hạng 1 trước
    `self-k`. Rẻ, mức truy hồi, không cần LLM; `margin.py` đã có. Nguồn ý:
-   [rà soát MCAT §8.2](archive/mcat_direction_review_2026_10_10.md).
+   [rà soát MCAT §8.2](../mcat_direction_review_2026_10_10.md).
 4. **Action độc trông hợp lý** (né S3).
 5. **Tấn công trong lúc sửa:** `log_outcome` một thời gian rồi mới bật sửa; đo lượng sửa cần để
-   đưa ASR về ngưỡng. Nguồn ý: [đề xuất write-back §3](archive/writeback_attack_proposals_2026_10_10.md).
+   đưa ASR về ngưỡng. Nguồn ý: [đề xuất write-back §3](../writeback_attack_proposals_2026_10_10.md).
 
 ## 7. Baseline và thước đo
 
@@ -178,7 +178,7 @@ quarantine EVOMAL §9.3. Nếu A-MemGuard đã ghi bản ghi sửa theo key quer
 còn trigger tối ưu và phải thu hẹp claim.
 
 Hướng lý thuyết có thể mượn: điều kiện co `E[N_(t+1) | F_t] ≤ γ N_t` cho số bản ghi độc còn hoạt
-động ([ý tưởng cũ §5](archive/self_updating_memory_backdoor_idea.md)). Chỉ là hệ quả có điều kiện,
+động ([ý tưởng cũ §5](../self_updating_memory_backdoor_idea.md)). Chỉ là hệ quả có điều kiện,
 chưa là bảo đảm của defense nào.
 
 ## 9. Kế hoạch và cổng
@@ -193,7 +193,7 @@ chưa là bảo đảm của defense nào.
 
 **Nhánh dự phòng** (cổng tuần 3 trượt): bài attack hẹp cho ARR (04/01/2027), "write-back khiến
 backdoor sống sau cleanup". Yếu vì chỉ đứng ở Llama p5 và chồng lấn EVOMAL/Zombie Agents; ý chi
-tiết ở [archive/writeback_attack_proposals_2026_10_10.md](archive/writeback_attack_proposals_2026_10_10.md).
+tiết ở [archive/writeback_attack_proposals_2026_10_10.md](../writeback_attack_proposals_2026_10_10.md).
 
 **Rủi ro tài nguyên:** mỗi arm write-back tốn 10–17 h trên Kaggle T4 (run 8 Qwen phải chạy tiếp).
 Tách mỗi arm một kernel, cache câu trả lời theo hash để chạy tiếp không sinh lại.
@@ -202,7 +202,7 @@ Tách mỗi arm một kernel, cache câu trả lời theo hash để chạy ti�
 
 | File (nay trong `archive/`) | Bỏ vì |
 |---|---|
-| [`mcat_direction_review_2026_10_10.md`](archive/mcat_direction_review_2026_10_10.md) | quyết định dừng MCAT đã thực hiện; ý §8.2–8.3 chuyển vào §6 và §1 file này; ý §8.1 (bài đo lường) bị literature 11/10 bác |
-| [`self_updating_memory_backdoor_idea.md`](archive/self_updating_memory_backdoor_idea.md) | claim attack-first "tự duy trì sau cleanup" chỉ đứng ở Llama p5, không chuyển sang Qwen; EVOMAL đã có propagation + ngưỡng + quarantine |
-| [`writeback_attack_proposals_2026_10_10.md`](archive/writeback_attack_proposals_2026_10_10.md) | attack chọn seed theo rollout cần hiện tượng persistence mà run 8 không xác nhận; giữ làm nguồn cho kẻ tấn công thích nghi và nhánh dự phòng |
-| [`memory_attack_directions_2026_10_10.md`](archive/memory_attack_directions_2026_10_10.md) | bốn bề mặt khác (sửa/xoá nhầm, ngân sách certificate, chi phí, thứ tự cập nhật) cần hạ tầng mới, không dùng được kết quả run 7–8 trong 13 tuần còn lại |
+| [`mcat_direction_review_2026_10_10.md`](../mcat_direction_review_2026_10_10.md) | quyết định dừng MCAT đã thực hiện; ý §8.2–8.3 chuyển vào §6 và §1 file này; ý §8.1 (bài đo lường) bị literature 11/10 bác |
+| [`self_updating_memory_backdoor_idea.md`](../self_updating_memory_backdoor_idea.md) | claim attack-first "tự duy trì sau cleanup" chỉ đứng ở Llama p5, không chuyển sang Qwen; EVOMAL đã có propagation + ngưỡng + quarantine |
+| [`writeback_attack_proposals_2026_10_10.md`](../writeback_attack_proposals_2026_10_10.md) | attack chọn seed theo rollout cần hiện tượng persistence mà run 8 không xác nhận; giữ làm nguồn cho kẻ tấn công thích nghi và nhánh dự phòng |
+| [`memory_attack_directions_2026_10_10.md`](../memory_attack_directions_2026_10_10.md) | bốn bề mặt khác (sửa/xoá nhầm, ngân sách certificate, chi phí, thứ tự cập nhật) cần hạ tầng mới, không dùng được kết quả run 7–8 trong 13 tuần còn lại |

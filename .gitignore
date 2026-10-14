@@ -213,3 +213,4 @@ agentdriver/data/finetune/
 agentdriver/data/memory/
 *.DS_Store
 .DS_Store
+# _idea_q1_a_plus/archive/

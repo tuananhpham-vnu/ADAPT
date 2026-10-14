@@ -3,7 +3,7 @@
 > **Lưu trữ 2026-10-13.** Bản đề xuất trước run 8 và audit recovery 12/10; độ bền cao chưa
 > chuyển sang Qwen, claim rộng chồng lấn literature. Run 8 chưa thử method chọn seed theo rollout,
 > nên không phải bằng chứng bác bỏ method đó. Các giả thuyết chỉ tiếp tục theo
-> [cổng chọn đề tài hiện tại](../memory_attack_research_status_2026_10_13.md).
+> [cổng chọn đề tài hiện tại](research_2026_10_14/memory_attack_research_status_2026_10_13.md).
 
 Ngày: **2026-10-10**, dựa trên báo cáo run 7 cập nhật **16:10**.
 Trạng thái: đề xuất attack để kiểm chứng, chưa có method mới được triển khai.
